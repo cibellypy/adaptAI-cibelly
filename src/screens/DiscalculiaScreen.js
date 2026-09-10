@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import * as Speech from 'expo-speech';
 import { addScore } from '../services/ScoreManager';
-import { falar } from '../services/Som';
+import { falar, falarElogio } from '../services/Som';
 
 const ATIVIDADES_NIVEL_2 = [
   { id: 1, imagem: '🍎', quantidade: 3, opcoes: [2, 3, 5] },
@@ -39,10 +39,12 @@ export default function DiscalculiaScreen({ navigation }) {
       setNumeroAlvo(sorteado);
       const msg = `Toque no número: ${sorteado}`;
       setMensagem(msg);
-      falar(msg, { language: 'pt-BR' });
+      // Passa a chave '6' ou '9' para tocar o áudio correto
+      falar(msg, String(sorteado));
     } else {
       setMensagem(`Quantos itens você vê?`);
-      falar(`Conte as figuras e escolha o número certo.`, { language: 'pt-BR' });
+      // Passa a chave 'conteasfiguras'
+      falar(`Conte as figuras e escolha o número certo.`, 'conteasfiguras');
     }
   };
 
@@ -55,7 +57,8 @@ export default function DiscalculiaScreen({ navigation }) {
       
       if (novoSaldo >= metaNivel1) {
         setMensagem('NÍVEL 1 CONCLUÍDO! 🎈');
-        falar("Isso mesmo!", { language: 'pt-BR' });
+        // Elogio sorteado, pra não repetir sempre a mesma fala
+        falarElogio();
         setTimeout(() => {
           setNivel(2);
           setCorFundo('#F7FAFC');
@@ -64,7 +67,8 @@ export default function DiscalculiaScreen({ navigation }) {
       } else {
         setAcertosSeguidos(novoSaldo);
         setMensagem(`Isso! Faltam ${metaNivel1 - novoSaldo}...`);
-        falar("Acertou!", { language: 'pt-BR' });
+        // Elogio sorteado, pra não repetir sempre a mesma fala
+        falarElogio();
         setTimeout(() => {
           setCorFundo('#F7FAFC');
           iniciarFase();
@@ -74,7 +78,8 @@ export default function DiscalculiaScreen({ navigation }) {
       setExpressaoLumi('confusa');
       addScore('discalculia', 'erro');
       setCorFundo('#FFCDD2');
-      falar("Quase! Olhe bem o formato do número.", { language: 'pt-BR' });
+      // Passa a chave 'quaseolhebem'
+      falar("Quase! Olhe bem o formato do número.", 'quaseolhebem');
       setTimeout(() => {
         setCorFundo('#F7FAFC');
         setExpressaoLumi('padrao');
@@ -88,7 +93,8 @@ export default function DiscalculiaScreen({ navigation }) {
       setExpressaoLumi('heroina'); 
       addScore('discalculia', 'acerto');
       setCorFundo('#C8E6C9');
-      falar("Correto!", { language: 'pt-BR' });
+      // Elogio sorteado, pra não repetir sempre a mesma fala
+      falarElogio();
       
       setTimeout(() => {
         if (indiceNivel2 < ATIVIDADES_NIVEL_2.length - 1) {
@@ -96,7 +102,6 @@ export default function DiscalculiaScreen({ navigation }) {
           setCorFundo('#F7FAFC');
           setExpressaoLumi('padrao');
         } else {
-          
           navigation.navigate('Parabens', { atividade: 'Matemática' });
         }
       }, 1500);
@@ -104,7 +109,8 @@ export default function DiscalculiaScreen({ navigation }) {
       setExpressaoLumi('confusa');
       addScore('discalculia', 'erro');
       setCorFundo('#FFCDD2');
-      falar("Tente contar de novo com calma.", { language: 'pt-BR' });
+      // Passa a chave 'tentecontardenovo'
+      falar("Tente contar de novo com calma.", 'tentecontardenovo');
       setTimeout(() => {
         setCorFundo('#F7FAFC');
         setExpressaoLumi('padrao');

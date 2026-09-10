@@ -7,7 +7,7 @@
 //
 // Quando gravar um áudio novo:
 //   1. Coloque o arquivo .mp3 em assets/audios/
-//   2. Adicione UMA linha aqui embaixo (ou descomente a linha já pronta)
+//   2. Adicione UMA linha aqui embaixo
 //   3. Pronto — nenhuma tela precisa ser alterada.
 //
 // Se uma chave usada em alguma tela NÃO existir aqui ainda, o app cai
@@ -16,8 +16,11 @@
 // ============================================================
 
 export const FALAS = {
-  // ---- Já gravados e recebidos ----
+  // ---- Home ----
   home: require('../../assets/audios/home.mp3'),
+  lumi_boasvindas: require('../../assets/audios/lumi_boasvindas.mp3'),
+
+  // ---- Dislexia (completo) ----
   correto: require('../../assets/audios/correto.mp3'),
   completepalavras: require('../../assets/audios/completepalavras.mp3'),
   escutadnv: require('../../assets/audios/escutadnv.mp3'),
@@ -26,7 +29,6 @@ export const FALAS = {
   faca: require('../../assets/audios/faca.mp3'),
   fogo: require('../../assets/audios/fogo.mp3'),
   gato: require('../../assets/audios/gato.mp3'),
-  lumi_boasvindas: require('../../assets/audios/lumi_boasvindas.mp3'),
   letraB: require('../../assets/audios/letraB.mp3'),
   letraD: require('../../assets/audios/letraD.mp3'),
   letraM: require('../../assets/audios/letraM.mp3'),
@@ -47,4 +49,13 @@ export const FALAS = {
   sol: require('../../assets/audios/sol.mp3'),
   pato: require('../../assets/audios/pato.mp3'),
   vaca: require('../../assets/audios/vaca.mp3'), // não usado em nenhuma tela ainda (VACA é a imagem errada, não falada)
+
+  // ---- Discalculia ----
+  '6': require('../../assets/audios/6.mp3'),
+  '9': require('../../assets/audios/9.mp3'),
+  conteasfiguras: require('../../assets/audios/conteasfiguras.mp3'),
+  issomesmo: require('../../assets/audios/issomesmo.mp3'),
+  acertou: require('../../assets/audios/acertou.mp3'),
+  quaseolhebem: require('../../assets/audios/quaseolhebem.mp3'),
+  tentecontardenovo: require('../../assets/audios/tentecontardenovo.mp3'),
 };

@@ -50,7 +50,7 @@ export default function Home({ navigation }) {
             onPress={tocarBoasVindas}
             style={styles.balao}
           >
-            <Text style={styles.textoBalao}>Oi! Eu sou a Lumi. Vamos aprender? </Text>
+            <Text style={styles.textoBalao}>Oi, Eu sou a Lumi. Vamos aprender? </Text>
           </TouchableOpacity>
 
           <Lumi width={180} height={180} />

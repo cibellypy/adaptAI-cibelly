@@ -28,7 +28,8 @@
     },
     "plugins": [
       "expo-screen-orientation",
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ]
   }
 }

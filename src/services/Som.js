@@ -7,24 +7,33 @@ export let somAtivado = true;
 
 export const setSomAtivadoGlobal = (valor) => {
   somAtivado = valor;
+  if (!valor) {
+    pararFala(); // desliga tudo e limpa qualquer fala esperando na fila
+  }
 };
 
 // ============================================================
 // CONFIGURAÇÃO DA ELEVENLABS (usada só quando NÃO existe áudio
 // pré-gravado para aquela fala — ver FALAS em Falas.js)
 // ============================================================
-// ATENÇÃO (ponto para discutir na monografia como limitação conhecida):
-// deixar a chave de API aqui no código do app é aceitável para fins de
-// demonstração de TCC, mas não é seguro para um app publicado de verdade
-// — qualquer pessoa pode extrair essa chave do instalável. O ideal em
-// produção seria um pequeno backend fazendo essa chamada por você.
 const ELEVENLABS_API_KEY = 'COLOQUE_SUA_CHAVE_AQUI';
 const ELEVENLABS_VOICE_ID = 'COLOQUE_O_VOICE_ID_AQUI';
 
 let audioPlayerAtual = null;
 let modoAudioConfigurado = false;
 
-// Garante que o áudio toque mesmo com o celular no modo silencioso (iOS)
+// ------------------------------------------------------------
+// FILA DE FALAS
+// Em vez de cortar uma fala pra tocar a próxima na hora (o que cortava
+// frases longas no meio), toda fala nova entra numa fila. A fala atual
+// sempre termina de tocar primeiro, e só DEPOIS a próxima da fila começa.
+// Isso evita tanto sobreposição (duas tocando ao mesmo tempo) quanto
+// corte no meio de frases importantes.
+// ------------------------------------------------------------
+let filaFala = [];
+let processandoFila = false;
+let liberarEsperaAtual = null; // libera na hora uma espera de áudio pendente, se houver
+
 async function garantirModoAudio() {
   if (!modoAudioConfigurado) {
     try {
@@ -34,6 +43,29 @@ async function garantirModoAudio() {
     }
     modoAudioConfigurado = true;
   }
+}
+
+// Espera um player terminar de tocar (evento nativo "didJustFinish").
+// Tem um limite de segurança: alguns aparelhos Android têm um bug conhecido
+// da biblioteca onde esse evento às vezes não dispara — sem esse limite,
+// a fila inteira travaria pra sempre esperando um sinal que nunca chega.
+function esperarAudioTerminar(player, tempoMaximoMs = 10000) {
+  return new Promise((resolve) => {
+    let resolvido = false;
+    const finalizar = () => {
+      if (resolvido) return;
+      resolvido = true;
+      assinatura?.remove();
+      clearTimeout(timer);
+      if (liberarEsperaAtual === finalizar) liberarEsperaAtual = null;
+      resolve();
+    };
+    liberarEsperaAtual = finalizar;
+    const assinatura = player.addListener('playbackStatusUpdate', (status) => {
+      if (status.didJustFinish) finalizar();
+    });
+    const timer = setTimeout(finalizar, tempoMaximoMs);
+  });
 }
 
 // ------------------------------------------------------------
@@ -52,8 +84,10 @@ async function falarComAudioLocal(chave) {
     }
     audioPlayerAtual = createAudioPlayer(arquivoAudio);
     audioPlayerAtual.volume = 1.0;
+    const esperaTerminar = esperarAudioTerminar(audioPlayerAtual);
     audioPlayerAtual.play();
-    console.log('[SOM] tocando áudio local com sucesso:', chave);
+    console.log('[SOM] tocando áudio local:', chave);
+    await esperaTerminar;
     return true;
   } catch (erro) {
     console.warn(`[SOM] Falha ao tocar áudio local "${chave}":`, erro.message);
@@ -117,7 +151,9 @@ async function falarComElevenLabs(texto) {
     }
     audioPlayerAtual = createAudioPlayer({ uri: arquivo.uri });
     audioPlayerAtual.volume = 1.0;
+    const esperaTerminar = esperarAudioTerminar(audioPlayerAtual);
     audioPlayerAtual.play();
+    await esperaTerminar;
 
     return true;
   } catch (erro) {
@@ -131,11 +167,50 @@ async function falarComElevenLabs(texto) {
 //    mesmo sem internet)
 // ------------------------------------------------------------
 function falarComVozNativa(texto) {
-  Speech.speak(texto, {
-    language: 'pt-BR',
-    pitch: 1.2,
-    rate: 0.9,
+  return new Promise((resolve) => {
+    Speech.speak(texto, {
+      language: 'pt-BR',
+      pitch: 1.2,
+      rate: 0.9,
+      onDone: resolve,
+      onStopped: resolve,
+      onError: resolve,
+    });
   });
+}
+
+// Toca UMA fala até o fim (local -> ElevenLabs -> nativa), sem se preocupar
+// com fila — isso é responsabilidade de processarFila().
+async function falarAgora(texto, chave) {
+  if (chave) {
+    const tocouLocal = await falarComAudioLocal(chave);
+    if (tocouLocal) return;
+  }
+
+  const conseguiuComElevenLabs = await falarComElevenLabs(texto);
+  if (!conseguiuComElevenLabs) {
+    await falarComVozNativa(texto);
+  }
+}
+
+// Vai esvaziando a fila, uma fala de cada vez, sempre esperando a atual
+// terminar antes de começar a próxima.
+async function processarFila() {
+  if (processandoFila) return; // já tem alguém cuidando da fila
+  processandoFila = true;
+
+  while (filaFala.length > 0) {
+    if (!somAtivado) {
+      filaFala = [];
+      break;
+    }
+    const proxima = filaFala.shift();
+    console.log('[SOM] tocando da fila — texto:', proxima.texto, '| chave:', proxima.chave, '| restantes na fila:', filaFala.length);
+    await falarAgora(proxima.texto, proxima.chave);
+    proxima.resolverQuandoTerminar?.();
+  }
+
+  processandoFila = false;
 }
 
 // ------------------------------------------------------------
@@ -146,35 +221,45 @@ function falarComVozNativa(texto) {
 //   chave → (opcional) nome do arquivo em assets/audios, SEM ".mp3"
 //           Ex: falar('Correto!', 'correto')
 //
-// Ordem de tentativa: áudio local (chave) → ElevenLabs ao vivo → voz nativa
+// Não interrompe mais a fala anterior — em vez disso, entra na fila e
+// espera a vez dela. Ordem de tentativa de cada fala: áudio local (chave)
+// → ElevenLabs ao vivo → voz nativa.
 // ------------------------------------------------------------
-export const falar = async (texto, chave = null) => {
-  console.log('[SOM] falar() chamado — texto:', texto, '| chave:', chave, '| somAtivado:', somAtivado);
+export const falar = (texto, chave = null) => {
+  console.log('[SOM] falar() enfileirado — texto:', texto, '| chave:', chave, '| somAtivado:', somAtivado);
 
   if (!somAtivado) {
-    console.log('[SOM] somAtivado é false, saindo sem tocar nada.');
-    return;
+    console.log('[SOM] somAtivado é false, saindo sem enfileirar nada.');
+    return Promise.resolve();
   }
 
-  if (chave) {
-    const tocouLocal = await falarComAudioLocal(chave);
-    console.log('[SOM] resultado do áudio local para chave', chave, ':', tocouLocal);
-    if (tocouLocal) return;
-  }
-
-  const conseguiuComElevenLabs = await falarComElevenLabs(texto);
-  console.log('[SOM] resultado da ElevenLabs ao vivo:', conseguiuComElevenLabs);
-  if (!conseguiuComElevenLabs) {
-    console.log('[SOM] caindo para voz nativa.');
-    falarComVozNativa(texto);
-  }
+  return new Promise((resolverQuandoTerminar) => {
+    filaFala.push({ texto, chave, resolverQuandoTerminar });
+    processarFila();
+  });
 };
 
-// Para qualquer fala em andamento (local, ElevenLabs ou nativa).
-// Use isso no lugar de "Speech.stop()" direto nas telas.
+// Lista de elogios que já temos gravados — a cada acerto, sorteia um
+// diferente, pra não ficar sempre repetindo a mesma palavra na mesma
+// atividade.
+const POOL_ELOGIOS = ['correto', 'muitobem', 'issomesmo', 'acertou'];
+
+// Fala um elogio aleatório (pode ser usado em qualquer atividade — Dislexia,
+// Discalculia, etc.) em vez de sempre a mesma frase fixa.
+export const falarElogio = () => {
+  const chave = POOL_ELOGIOS[Math.floor(Math.random() * POOL_ELOGIOS.length)];
+  falar('Muito bem!', chave); // o texto aqui só é usado se a chave não existir
+};
+
+// Para TUDO — a fala que está tocando agora e qualquer coisa esperando na
+// fila. Use isso para casos de "parar de verdade": o botão de mudo, ou ao
+// sair de uma tela (senão uma fala que ainda estava na fila pode tocar
+// bem depois, já em outra tela).
 export const pararFala = () => {
+  filaFala = [];
   Speech.stop();
   if (audioPlayerAtual) {
     audioPlayerAtual.pause();
   }
+  liberarEsperaAtual?.(); // libera na hora, em vez de esperar até 10s pelo sinal de "terminou"
 };

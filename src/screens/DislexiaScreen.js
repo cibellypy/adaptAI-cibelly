@@ -2,18 +2,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, PanResponder } from 'react-native';
 import * as Speech from 'expo-speech';
 import { addScore } from '../services/ScoreManager';
-import { falar } from '../services/Som';
+import { falar, falarElogio, pararFala } from '../services/Som';
 
 // ============================================================
 // BANCOS DE ATIVIDADES
 // ============================================================
 
+// NÍVEL 1 — Letras espelhadas (confusão visual clássica da dislexia)
 const PARES_NIVEL1 = [
   { par: ['B', 'D'], fonemas: { B: 'BÊ', D: 'DÊ' }, chaveAudio: { B: 'letraB', D: 'letraD' } },
   { par: ['P', 'Q'], fonemas: { P: 'PÊ', Q: 'QUÊ' }, chaveAudio: { P: 'letraP', Q: 'letraQ' } },
   { par: ['M', 'W'], fonemas: { M: 'EME', W: 'DÁBLIU' }, chaveAudio: { M: 'letraM', W: 'letraW' } },
 ];
 
+// NÍVEL 2 — Complete a palavra (posição da letra variando: início, meio, fim)
 const ATIVIDADES_NIVEL2 = [
   { id: 1, imagem: '⚽', palavra: '_ OLA', posicao: 'início', letraCorreta: 'B', opcoes: ['B', 'D', 'P', 'Q'] },
   { id: 2, imagem: '🎲', palavra: '_ ADO', posicao: 'início', letraCorreta: 'D', opcoes: ['D', 'B', 'P', 'Q'] },
@@ -25,6 +27,7 @@ const ATIVIDADES_NIVEL2 = [
   { id: 8, imagem: '🐱', palavra: 'GAT _', posicao: 'fim', letraCorreta: 'O', opcoes: ['O', 'A', 'U', 'E'] },
 ];
 
+// NÍVEL 3 — Monte a Palavra
 const PALAVRAS_NIVEL3 = [
   { id: 1, imagem: '⚽', palavra: 'BOLA' },
   { id: 2, imagem: '🐱', palavra: 'GATO' },
@@ -32,6 +35,7 @@ const PALAVRAS_NIVEL3 = [
   { id: 4, imagem: '🦆', palavra: 'PATO' },
 ];
 
+// NÍVEL 4 — Discriminação de sons parecidos
 const ATIVIDADES_NIVEL4 = [
   { id: 1, palavraCerta: 'FACA', imagemCerta: '🔪', palavraErrada: 'VACA', imagemErrada: '🐄' },
   { id: 2, palavraCerta: 'PATO', imagemCerta: '🦆', palavraErrada: 'GATO', imagemErrada: '🐱' },
@@ -41,6 +45,7 @@ const ATIVIDADES_NIVEL4 = [
 
 const TOTAL_NIVEIS = 4;
 
+// Embaralha um array sem alterar o original (Fisher-Yates)
 function embaralhar(array) {
   const copia = [...array];
   for (let i = copia.length - 1; i > 0; i--) {
@@ -51,10 +56,11 @@ function embaralhar(array) {
 }
 
 // ------------------------------------------------------------
-// Componente de letra arrastável
+// Componente de letra arrastável (drag-and-drop) usado no Nível 3.
 // ------------------------------------------------------------
-function LetraArrastavel({ item, onSoltar }) {
+function LetraArrastavel({ letra, onSoltar }) {
   const pan = useRef(new Animated.ValueXY()).current;
+  const removida = useRef(false);
 
   const onSoltarRef = useRef(onSoltar);
   useEffect(() => {
@@ -68,9 +74,12 @@ function LetraArrastavel({ item, onSoltar }) {
         useNativeDriver: false,
       }),
       onPanResponderRelease: (evt, gestureState) => {
-        Promise.resolve(onSoltarRef.current(item, gestureState.moveX, gestureState.moveY)).then(
+        Promise.resolve(onSoltarRef.current(letra, gestureState.moveX, gestureState.moveY)).then(
           (encaixou) => {
-            if (!encaixou) {
+            if (encaixou) {
+              removida.current = true;
+              pan.setValue({ x: 9999, y: 9999 });
+            } else {
               Animated.spring(pan, {
                 toValue: { x: 0, y: 0 },
                 useNativeDriver: false,
@@ -82,12 +91,14 @@ function LetraArrastavel({ item, onSoltar }) {
     })
   ).current;
 
+  if (removida.current) return null;
+
   return (
     <Animated.View
       {...panResponder.panHandlers}
       style={[styles.letraArrastavel, { transform: pan.getTranslateTransform() }]}
     >
-      <Text style={styles.textoLetraArrastavel}>{item.letra}</Text>
+      <Text style={styles.textoLetraArrastavel}>{letra}</Text>
     </Animated.View>
   );
 }
@@ -99,17 +110,23 @@ export default function DislexiaScreen({ navigation }) {
   const [corFundo, setCorFundo] = useState('#F7FAFC');
   const [expressaoLumi, setExpressaoLumi] = useState('padrao');
 
+  // Estado específico do Nível 1
   const [parAtual, setParAtual] = useState(PARES_NIVEL1[0]);
   const [letraAlvo, setLetraAlvo] = useState('B');
+  const [opcoesNivel1Embaralhadas, setOpcoesNivel1Embaralhadas] = useState([]);
 
+  // Estado específico dos Níveis 2 e 4 (índice dentro do banco de atividades)
   const [indiceAtividade, setIndiceAtividade] = useState(0);
+
+  // Estado específico do Nível 2 (opções embaralhadas para cada rodada)
+  const [opcoesNivel2Embaralhadas, setOpcoesNivel2Embaralhadas] = useState([]);
+
+  // Estado específico do Nível 4 (posição embaralhada das imagens)
   const [imagensInvertidas, setImagensInvertidas] = useState(false);
 
+  // Estado específico do Nível 3 (Monte a Palavra)
   const [letrasBandeja, setLetrasBandeja] = useState([]);
   const [slotsPreenchidos, setSlotsPreenchidos] = useState([]);
-  
-  // REFERÊNCIAS DOS SLOTS DECLARADAS AQUI
-  const slotLayoutsRef = useRef([]);
   const slotRefsArray = useRef([]);
 
   const imagensLumi = {
@@ -129,10 +146,22 @@ export default function DislexiaScreen({ navigation }) {
     setAcertosSeguidos(0);
     iniciarFase();
     return () => {
-      Speech.stop();
+      pararFala();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nivel]);
 
+  // Atualiza as opções embaralhadas do Nível 2 sempre que o índice mudar
+  useEffect(() => {
+    if (nivel === 2) {
+      const atual = ATIVIDADES_NIVEL2[indiceSeguroNivel2];
+      setOpcoesNivel2Embaralhadas(embaralhar(atual.opcoes));
+    }
+  }, [nivel, indiceAtividade]);
+
+  // ------------------------------------------------------------
+  // Introdução falada de cada fase
+  // ------------------------------------------------------------
   const iniciarFase = () => {
     setExpressaoLumi('padrao');
 
@@ -141,6 +170,7 @@ export default function DislexiaScreen({ navigation }) {
       const sorteada = par.par[Math.floor(Math.random() * par.par.length)];
       setParAtual(par);
       setLetraAlvo(sorteada);
+      setOpcoesNivel1Embaralhadas(embaralhar(par.par)); // Embaralha as posições das letras do Nível 1
       const msg = `Encontre a letra: ${par.fonemas[sorteada]}`;
       setMensagem(msg);
       falar(msg, par.chaveAudio[sorteada]);
@@ -164,38 +194,27 @@ export default function DislexiaScreen({ navigation }) {
 
   const montarBandejaNivel3 = (indice) => {
     const atual = PALAVRAS_NIVEL3[indice];
-    if (!atual) return;
-
-    slotLayoutsRef.current = [];
+    const letras = atual.palavra.split('').map((l, idx) => ({ id: `${idx}-${l}-${Date.now()}`, letra: l }));
     slotRefsArray.current = [];
-
-    const letras = atual.palavra.split('').map((l, idx) => ({
-      id: `${idx}-${l}-${Date.now()}`,
-      letra: l,
-    }));
-
-    setSlotsPreenchidos(Array(atual.palavra.length).fill(null));
     setLetrasBandeja(embaralhar(letras));
-
+    setSlotsPreenchidos(Array(atual.palavra.length).fill(null));
     setTimeout(() => falar(atual.palavra, atual.palavra.toLowerCase()), 600);
   };
 
   const avancarNivel = () => {
     if (nivel < TOTAL_NIVEIS) {
       setMensagem(`NÍVEL ${nivel} CONCLUÍDO! 🎉`);
-      falar('Isso mesmo! Vamos para o próximo desafio.', 'proximodesafio');
-      setTimeout(() => {
+      falar('Isso mesmo! Vamos para o próximo desafio.', 'proximodesafio').then(() => {
         setIndiceAtividade(0);
         setAcertosSeguidos(0);
         setNivel(nivel + 1);
         setCorFundo('#F7FAFC');
-      }, 2000);
+      });
     } else {
       setMensagem('VOCÊ CONCLUIU TODOS OS NÍVEIS! 🏆');
-      falar('Parabéns! Você dominou todas as atividades.', 'parabensdominou');
-      setTimeout(() => {
+      falar('Parabéns! Você dominou todas as atividades.', 'parabensdominou').then(() => {
         navigation.navigate('Parabens', { atividade: 'Dislexia' });
-      }, 2000);
+      });
     }
   };
 
@@ -218,6 +237,9 @@ export default function DislexiaScreen({ navigation }) {
     }, 1200);
   };
 
+  // ------------------------------------------------------------
+  // NÍVEL 1 — Letras espelhadas
+  // ------------------------------------------------------------
   const verificarNivel1 = (letra) => {
     if (letra === letraAlvo) {
       const novoSaldo = acertosSeguidos + 1;
@@ -226,7 +248,8 @@ export default function DislexiaScreen({ navigation }) {
         setTimeout(() => avancarNivel(), 300);
       } else {
         setAcertosSeguidos(novoSaldo);
-        registrarAcerto(`Isso! Só mais ${metaNivel1 - novoSaldo}...`, 'Muito bem!', 'muitobem');
+        falarElogio();
+        registrarAcerto(`Isso! Só mais ${metaNivel1 - novoSaldo}...`, null);
         setTimeout(() => {
           setCorFundo('#F7FAFC');
           iniciarFase();
@@ -237,10 +260,14 @@ export default function DislexiaScreen({ navigation }) {
     }
   };
 
+  // ------------------------------------------------------------
+  // NÍVEL 2 — Complete a palavra
+  // ------------------------------------------------------------
   const verificarNivel2 = (letra) => {
-    const atual = ATIVIDADES_NIVEL2[indiceSeguroNivel2];
+    const atual = ATIVIDADES_NIVEL2[indiceAtividade];
     if (letra === atual.letraCorreta) {
-      registrarAcerto('', 'Correto!', 'correto');
+      falarElogio();
+      registrarAcerto('', null);
       setTimeout(() => {
         if (indiceAtividade < ATIVIDADES_NIVEL2.length - 1) {
           setIndiceAtividade(indiceAtividade + 1);
@@ -255,41 +282,55 @@ export default function DislexiaScreen({ navigation }) {
     }
   };
 
-  const soltarLetraNivel3 = (itemArrastado, moveX, moveY) => {
-    const atual = PALAVRAS_NIVEL3[indiceSeguroNivel3];
-    if (!atual) return false;
+  // ------------------------------------------------------------
+  // NÍVEL 3 — Monte a Palavra (drag-and-drop)
+  // ------------------------------------------------------------
+  const medirSlot = (idx) => {
+    return new Promise((resolve) => {
+      const ref = slotRefsArray.current[idx];
+      if (!ref) {
+        resolve(null);
+        return;
+      }
+      ref.measureInWindow((x, y, width, height) => resolve({ x, y, width, height }));
+    });
+  };
 
-    const slotIndex = slotLayoutsRef.current.findIndex((layout, idx) => {
-      if (!layout || slotsPreenchidos[idx]) return false;
-      return (
+  const soltarLetraNivel3 = async (letra, moveX, moveY) => {
+    const atual = PALAVRAS_NIVEL3[indiceAtividade];
+
+    let slotIndex = -1;
+    for (let idx = 0; idx < atual.palavra.length; idx++) {
+      if (slotsPreenchidos[idx]) continue;
+      const layout = await medirSlot(idx);
+      if (!layout) continue;
+      if (
         moveX >= layout.x &&
         moveX <= layout.x + layout.width &&
         moveY >= layout.y &&
         moveY <= layout.y + layout.height
-      );
-    });
+      ) {
+        slotIndex = idx;
+        break;
+      }
+    }
 
     if (slotIndex === -1) return false;
 
     const letraEsperada = atual.palavra[slotIndex];
 
-    if (itemArrastado.letra === letraEsperada) {
+    if (letra === letraEsperada) {
       const novosSlots = [...slotsPreenchidos];
-      novosSlots[slotIndex] = itemArrastado.letra;
+      novosSlots[slotIndex] = letra;
       setSlotsPreenchidos(novosSlots);
-
-      setLetrasBandeja((prev) => prev.filter((i) => i.id !== itemArrastado.id));
-
       setExpressaoLumi('heroina');
       addScore('dislexia', 'acerto');
-      falar('Isso!', 'isso');
 
       const completou = novosSlots.every((s) => s !== null);
       if (completou) {
         setCorFundo('#C6F6D5');
         setMensagem('Palavra montada! 🎉');
         falar('Você montou a palavra certinho!', 'montoucertinho');
-
         setTimeout(() => {
           setCorFundo('#F7FAFC');
           if (indiceAtividade < PALAVRAS_NIVEL3.length - 1) {
@@ -306,14 +347,18 @@ export default function DislexiaScreen({ navigation }) {
       }
       return true;
     } else {
-      registrarErro('Essa letra não é aí, tenta outro espaço!', 'tentaoutroespaco');
+      registrarErro('Essa letra não é essa, tenta outro espaço!', 'tentaoutroespaco');
       return false;
     }
   };
 
+  // ------------------------------------------------------------
+  // NÍVEL 4 — Discriminação de sons parecidos
+  // ------------------------------------------------------------
   const verificarNivel4 = (escolhaCerta) => {
     if (escolhaCerta) {
-      registrarAcerto('', 'Isso mesmo, você ouviu certinho!', 'ouviucertinho');
+      falarElogio();
+      registrarAcerto('', null);
       setTimeout(() => {
         if (indiceAtividade < ATIVIDADES_NIVEL4.length - 1) {
           const prox = indiceAtividade + 1;
@@ -334,6 +379,9 @@ export default function DislexiaScreen({ navigation }) {
     }
   };
 
+  // ------------------------------------------------------------
+  // RENDER
+  // ------------------------------------------------------------
   return (
     <View style={[styles.container, { backgroundColor: corFundo }]}>
       <View style={styles.header}>
@@ -353,11 +401,11 @@ export default function DislexiaScreen({ navigation }) {
         />
       </View>
 
-      {/* NÍVEL 1 */}
+      {/* NÍVEL 1 — Letras espelhadas (posições randomizadas) */}
       {nivel === 1 && (
         <View style={styles.areaJogo}>
           <View style={styles.areaBotoes}>
-            {parAtual.par.map((l) => (
+            {opcoesNivel1Embaralhadas.map((l) => (
               <TouchableOpacity key={l} style={styles.botaoGrande} onPress={() => verificarNivel1(l)}>
                 <Text style={styles.textoBotao}>{l}</Text>
               </TouchableOpacity>
@@ -366,7 +414,7 @@ export default function DislexiaScreen({ navigation }) {
         </View>
       )}
 
-      {/* NÍVEL 2 */}
+      {/* NÍVEL 2 — Complete a palavra (posições das opções randomizadas) */}
       {nivel === 2 && (
         <View style={styles.areaJogo}>
           <View style={styles.cardImagem}>
@@ -377,7 +425,7 @@ export default function DislexiaScreen({ navigation }) {
             </Text>
           </View>
           <View style={styles.areaBotoesPequenos}>
-            {ATIVIDADES_NIVEL2[indiceSeguroNivel2].opcoes.map((l) => (
+            {opcoesNivel2Embaralhadas.map((l) => (
               <TouchableOpacity key={l} style={styles.botaoPequeno} onPress={() => verificarNivel2(l)}>
                 <Text style={styles.textoBotaoPequeno}>{l}</Text>
               </TouchableOpacity>
@@ -386,7 +434,7 @@ export default function DislexiaScreen({ navigation }) {
         </View>
       )}
 
-      {/* NÍVEL 3 */}
+      {/* NÍVEL 3 — Monte a Palavra (drag-and-drop) */}
       {nivel === 3 && (
         <View style={styles.areaJogo}>
           <Text style={styles.emoji}>{PALAVRAS_NIVEL3[indiceSeguroNivel3].imagem}</Text>
@@ -404,33 +452,24 @@ export default function DislexiaScreen({ navigation }) {
           <View style={styles.areaSlots}>
             {slotsPreenchidos.map((letra, idx) => (
               <View
-                key={`slot-${indiceAtividade}-${idx}`}
+                key={idx}
                 ref={(ref) => (slotRefsArray.current[idx] = ref)}
-                onLayout={() => {
-                  setTimeout(() => {
-                    slotRefsArray.current[idx]?.measureInWindow((x, y, width, height) => {
-                      slotLayoutsRef.current[idx] = { x, y, width, height };
-                    });
-                  }, 150);
-                }}
                 style={[styles.slotLetra, letra && styles.slotLetraPreenchido]}
               >
-                <Text style={[styles.slotTexto, letra && styles.slotTextoPreenchido]}>
-                  {letra || ''}
-                </Text>
+                <Text style={styles.slotTexto}>{letra || ''}</Text>
               </View>
             ))}
           </View>
 
           <View style={styles.bandejaLetras}>
             {letrasBandeja.map((item) => (
-              <LetraArrastavel key={item.id} item={item} onSoltar={soltarLetraNivel3} />
+              <LetraArrastavel key={item.id} letra={item.letra} onSoltar={soltarLetraNivel3} />
             ))}
           </View>
         </View>
       )}
 
-      {/* NÍVEL 4 */}
+      {/* NÍVEL 4 — Discriminação de sons parecidos */}
       {nivel === 4 && (
         <View style={styles.areaJogo}>
           <TouchableOpacity
@@ -477,8 +516,22 @@ const styles = StyleSheet.create({
   containerLumi: { marginBottom: 20, alignItems: 'center', justifyContent: 'center' },
   areaJogo: { width: '100%', alignItems: 'center' },
   areaBotoes: { flexDirection: 'row', gap: 30 },
-  botaoGrande: { backgroundColor: '#1A365D', padding: 45, borderRadius: 30, width: 140, alignItems: 'center', elevation: 10 },
-  textoBotao: { fontSize: 70, color: '#FFF', fontWeight: 'bold' },
+  botaoGrande: {
+    backgroundColor: '#1A365D',
+    paddingVertical: 30,
+    paddingHorizontal: 18,
+    borderRadius: 30,
+    minWidth: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 10,
+  },
+  textoBotao: {
+    fontSize: 62,
+    color: '#FFF',
+    fontWeight: 'bold',
+    includeFontPadding: false, 
+  },
   cardImagem: { backgroundColor: '#FFF', padding: 20, borderRadius: 30, alignItems: 'center', elevation: 8, width: '90%', marginBottom: 20 },
   emoji: { fontSize: 70, marginBottom: 5 },
   palavraIncompleta: { fontSize: 32, fontWeight: 'bold', letterSpacing: 5, textAlign: 'center' },
@@ -491,32 +544,21 @@ const styles = StyleSheet.create({
   areaOpcoesImagem: { flexDirection: 'row', gap: 25 },
   cardImagemOpcao: { backgroundColor: '#FFF', width: 130, height: 130, borderRadius: 25, alignItems: 'center', justifyContent: 'center', elevation: 8 },
   emojiGrande: { fontSize: 60 },
+
   areaSlots: { flexDirection: 'row', gap: 10, marginTop: 25, marginBottom: 35 },
   slotLetra: {
-    width: 60,
-    height: 60,
-    borderRadius: 15,
-    borderWidth: 2,
+    width: 55,
+    height: 65,
+    borderRadius: 12,
+    borderWidth: 3,
     borderColor: '#CBD5E0',
     borderStyle: 'dashed',
     backgroundColor: '#FFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  slotLetraPreenchido: {
-    borderStyle: 'solid',
-    borderColor: '#7C3AED',
-    backgroundColor: '#7C3AED',
-    elevation: 4,
-  },
-  slotTexto: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#A0AEC0',
-  },
-  slotTextoPreenchido: {
-    color: '#FFF',
-  },
+  slotLetraPreenchido: { borderStyle: 'solid', borderColor: '#1A365D', backgroundColor: '#E2E8F0' },
+  slotTexto: { fontSize: 32, fontWeight: 'bold', color: '#1A365D' },
   bandejaLetras: {
     flexDirection: 'row',
     flexWrap: 'wrap',
