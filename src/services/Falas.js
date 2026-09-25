@@ -50,6 +50,11 @@ export const FALAS = {
   pato: require('../../assets/audios/pato.mp3'),
   vaca: require('../../assets/audios/vaca.mp3'), // não usado em nenhuma tela ainda (VACA é a imagem errada, não falada)
 
+  // ---- Variações extras de elogio/incentivo (usadas em qualquer atividade) ----
+  wohooparabens: require('../../assets/audios/wohooparabens.mp3'),
+  fezcertinho: require('../../assets/audios/fezcertinho.mp3'),
+  hum_tentamaisumavez: require('../../assets/audios/hum_tentamaisumavez.mp3'),
+
   // ---- Discalculia ----
   '6': require('../../assets/audios/6.mp3'),
   '9': require('../../assets/audios/9.mp3'),

@@ -49,7 +49,7 @@ async function garantirModoAudio() {
 // Tem um limite de segurança: alguns aparelhos Android têm um bug conhecido
 // da biblioteca onde esse evento às vezes não dispara — sem esse limite,
 // a fila inteira travaria pra sempre esperando um sinal que nunca chega.
-function esperarAudioTerminar(player, tempoMaximoMs = 10000) {
+function esperarAudioTerminar(player, tempoMaximoMs = 5000) {
   return new Promise((resolve) => {
     let resolvido = false;
     const finalizar = () => {
@@ -65,6 +65,19 @@ function esperarAudioTerminar(player, tempoMaximoMs = 10000) {
       if (status.didJustFinish) finalizar();
     });
     const timer = setTimeout(finalizar, tempoMaximoMs);
+  });
+}
+
+// Confere, pouco depois de mandar tocar, se o áudio realmente começou a
+// tocar de verdade. Existe um bug conhecido do expo-audio onde, depois de
+// tocar muitos áudios numa mesma sessão, o player "trava" silenciosamente
+// (não emite som e nunca dispara o evento de "terminei"). Se detectarmos
+// isso, desistimos na hora em vez de esperar o tempo máximo inteiro.
+function checarSePlayerComecouATocar(player) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(!!player.playing);
+    }, 400);
   });
 }
 
@@ -87,6 +100,14 @@ async function falarComAudioLocal(chave) {
     const esperaTerminar = esperarAudioTerminar(audioPlayerAtual);
     audioPlayerAtual.play();
     console.log('[SOM] tocando áudio local:', chave);
+
+    const comecouATocar = await checarSePlayerComecouATocar(audioPlayerAtual);
+    if (!comecouATocar) {
+      console.warn(`[SOM] áudio local "${chave}" não começou a tocar de verdade — caindo pro próximo plano.`);
+      liberarEsperaAtual = null;
+      return false;
+    }
+
     await esperaTerminar;
     return true;
   } catch (erro) {
@@ -153,6 +174,14 @@ async function falarComElevenLabs(texto) {
     audioPlayerAtual.volume = 1.0;
     const esperaTerminar = esperarAudioTerminar(audioPlayerAtual);
     audioPlayerAtual.play();
+
+    const comecouATocar = await checarSePlayerComecouATocar(audioPlayerAtual);
+    if (!comecouATocar) {
+      console.warn('[SOM] áudio da ElevenLabs não começou a tocar de verdade — caindo pra voz nativa.');
+      liberarEsperaAtual = null;
+      return false;
+    }
+
     await esperaTerminar;
 
     return true;
@@ -242,13 +271,21 @@ export const falar = (texto, chave = null) => {
 // Lista de elogios que já temos gravados — a cada acerto, sorteia um
 // diferente, pra não ficar sempre repetindo a mesma palavra na mesma
 // atividade.
-const POOL_ELOGIOS = ['correto', 'muitobem', 'issomesmo', 'acertou'];
+const POOL_ELOGIOS = ['correto', 'muitobem', 'issomesmo', 'acertou', 'wohooparabens', 'fezcertinho'];
 
 // Fala um elogio aleatório (pode ser usado em qualquer atividade — Dislexia,
 // Discalculia, etc.) em vez de sempre a mesma frase fixa.
 export const falarElogio = () => {
-  const chave = POOL_ELOGIOS[Math.floor(Math.random() * POOL_ELOGIOS.length)];
-  falar('Muito bem!', chave); // o texto aqui só é usado se a chave não existir
+  falarAleatorio('Muito bem!', POOL_ELOGIOS);
+};
+
+// Sorteia uma chave entre as passadas e fala ela. Usado tanto pro elogio
+// genérico quanto pros erros, onde cada tela pode misturar sua dica
+// específica (ex: "tenta outro espaço") com uma fala genérica de incentivo
+// (ex: "hum, tenta mais uma vez") — assim varia sem perder a dica útil.
+export const falarAleatorio = (textoFallback, chaves) => {
+  const chave = chaves[Math.floor(Math.random() * chaves.length)];
+  falar(textoFallback, chave);
 };
 
 // Para TUDO — a fala que está tocando agora e qualquer coisa esperando na

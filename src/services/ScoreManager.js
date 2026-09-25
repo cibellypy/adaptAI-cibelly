@@ -5,6 +5,8 @@ export const scores = {
   discalculiaErros: 0,
   dislexiaAcertos: 0,
   dislexiaErros: 0,
+  vrAcertos: 0, // Adicionado
+  vrErros: 0,   // Adicionado
 };
 
 export const addScore = (atividade, resultado) => {

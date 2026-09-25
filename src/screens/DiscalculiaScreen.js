@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import * as Speech from 'expo-speech';
 import { addScore } from '../services/ScoreManager';
-import { falar, falarElogio } from '../services/Som';
+import { falar, falarElogio, falarAleatorio } from '../services/Som';
 
 const ATIVIDADES_NIVEL_2 = [
   { id: 1, imagem: '🍎', quantidade: 3, opcoes: [2, 3, 5] },
@@ -79,7 +79,7 @@ export default function DiscalculiaScreen({ navigation }) {
       addScore('discalculia', 'erro');
       setCorFundo('#FFCDD2');
       // Passa a chave 'quaseolhebem'
-      falar("Quase! Olhe bem o formato do número.", 'quaseolhebem');
+      falarAleatorio("Quase! Olhe bem o formato do número.", ['quaseolhebem', 'hum_tentamaisumavez']);
       setTimeout(() => {
         setCorFundo('#F7FAFC');
         setExpressaoLumi('padrao');
@@ -110,7 +110,7 @@ export default function DiscalculiaScreen({ navigation }) {
       addScore('discalculia', 'erro');
       setCorFundo('#FFCDD2');
       // Passa a chave 'tentecontardenovo'
-      falar("Tente contar de novo com calma.", 'tentecontardenovo');
+      falarAleatorio("Tente contar de novo com calma.", ['tentecontardenovo', 'hum_tentamaisumavez']);
       setTimeout(() => {
         setCorFundo('#F7FAFC');
         setExpressaoLumi('padrao');

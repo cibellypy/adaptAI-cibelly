@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, PanResponder } from 'react-native';
 import * as Speech from 'expo-speech';
 import { addScore } from '../services/ScoreManager';
-import { falar, falarElogio, pararFala } from '../services/Som';
+import { falar, falarElogio, falarAleatorio, pararFala } from '../services/Som';
 
 // ============================================================
 // BANCOS DE ATIVIDADES
@@ -142,6 +142,7 @@ export default function DislexiaScreen({ navigation }) {
   const indiceSeguroNivel4 = Math.min(indiceAtividade, ATIVIDADES_NIVEL4.length - 1);
 
   useEffect(() => {
+    pararFala();
     setIndiceAtividade(0);
     setAcertosSeguidos(0);
     iniciarFase();
@@ -151,32 +152,36 @@ export default function DislexiaScreen({ navigation }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nivel]);
 
-  // Atualiza as opções embaralhadas do Nível 2 sempre que o índice mudar
+  // Atualiza as opções embaralhadas do Nível 2 apenas quando o índice da atividade mudar (removido 'nivel' daqui para evitar conflito)
   useEffect(() => {
     if (nivel === 2) {
       const atual = ATIVIDADES_NIVEL2[indiceSeguroNivel2];
       setOpcoesNivel2Embaralhadas(embaralhar(atual.opcoes));
     }
-  }, [nivel, indiceAtividade]);
+  }, [indiceAtividade, nivel]);
 
   // ------------------------------------------------------------
   // Introdução falada de cada fase
   // ------------------------------------------------------------
   const iniciarFase = () => {
     setExpressaoLumi('padrao');
+    pararFala(); // Garante que corta qualquer áudio anterior
 
     if (nivel === 1) {
       const par = PARES_NIVEL1[Math.floor(Math.random() * PARES_NIVEL1.length)];
       const sorteada = par.par[Math.floor(Math.random() * par.par.length)];
       setParAtual(par);
       setLetraAlvo(sorteada);
-      setOpcoesNivel1Embaralhadas(embaralhar(par.par)); // Embaralha as posições das letras do Nível 1
+      setOpcoesNivel1Embaralhadas(embaralhar(par.par));
       const msg = `Encontre a letra: ${par.fonemas[sorteada]}`;
       setMensagem(msg);
       falar(msg, par.chaveAudio[sorteada]);
     } else if (nivel === 2) {
       setMensagem('Nível 2: Complete a palavra');
-      falar('Mandou bem! Agora complete as palavras.', 'completepalavras');
+      // Usando um pequeno atraso e verificando se já não tá falando para evitar eco duplo
+      setTimeout(() => {
+        falar('Agora complete as palavras.', 'completepalavras');
+      }, 300);
     } else if (nivel === 3) {
       montarBandejaNivel3(0);
       setMensagem('Nível 3: Arraste as letras até o lugar certo');
@@ -202,11 +207,10 @@ export default function DislexiaScreen({ navigation }) {
   };
 
   const avancarNivel = () => {
+    pararFala();
     if (nivel < TOTAL_NIVEIS) {
       setMensagem(`NÍVEL ${nivel} CONCLUÍDO! 🎉`);
       falar('Isso mesmo! Vamos para o próximo desafio.', 'proximodesafio').then(() => {
-        setIndiceAtividade(0);
-        setAcertosSeguidos(0);
         setNivel(nivel + 1);
         setCorFundo('#F7FAFC');
       });
@@ -226,11 +230,15 @@ export default function DislexiaScreen({ navigation }) {
     if (falaFeedback) falar(falaFeedback, chaveAudio);
   };
 
-  const registrarErro = (falaFeedback, chaveAudio = null) => {
+  const registrarErro = (falaFeedback, chavesAudio = []) => {
     setExpressaoLumi('confusa');
     addScore('dislexia', 'erro');
     setCorFundo('#FED7D7');
-    falar(falaFeedback, chaveAudio);
+    if (chavesAudio.length > 0) {
+      falarAleatorio(falaFeedback, chavesAudio);
+    } else {
+      falar(falaFeedback);
+    }
     setTimeout(() => {
       setCorFundo('#F7FAFC');
       setExpressaoLumi('padrao');
@@ -256,7 +264,7 @@ export default function DislexiaScreen({ navigation }) {
         }, 1500);
       }
     } else {
-      registrarErro('Quase! Essa é a outra letra.', 'quase');
+      registrarErro('Quase! Essa é a outra letra.', ['quase', 'hum_tentamaisumavez']);
     }
   };
 
@@ -278,7 +286,7 @@ export default function DislexiaScreen({ navigation }) {
         }
       }, 1500);
     } else {
-      registrarErro('Tente outra letra!', 'tenteoutraletra');
+      registrarErro('Tente outra letra!', ['tenteoutraletra', 'hum_tentamaisumavez']);
     }
   };
 
@@ -347,7 +355,7 @@ export default function DislexiaScreen({ navigation }) {
       }
       return true;
     } else {
-      registrarErro('Essa letra não é essa, tenta outro espaço!', 'tentaoutroespaco');
+      registrarErro('Essa letra não é essa, tenta outro espaço!', ['tentaoutroespaco', 'hum_tentamaisumavez']);
       return false;
     }
   };
@@ -375,7 +383,7 @@ export default function DislexiaScreen({ navigation }) {
         }
       }, 1500);
     } else {
-      registrarErro('Escute de novo com atenção!', 'escutadnv');
+      registrarErro('Escute de novo com atenção!', ['escutadnv', 'hum_tentamaisumavez']);
     }
   };
 

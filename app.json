@@ -3,7 +3,7 @@
     "name": "AdaptAI",
     "slug": "AdaptAI",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
@@ -21,7 +21,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.anonymous.AdaptAI"
+      "package": "com.anonymous.AdaptAI",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -29,7 +33,14 @@
     "plugins": [
       "expo-screen-orientation",
       "expo-audio",
-      "expo-asset"
-    ]
+      "expo-asset",
+      "expo-image",
+      "expo-status-bar"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5ca042e8-757a-485f-a1b1-739540c6514d"
+      }
+    }
   }
 }

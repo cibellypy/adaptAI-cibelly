@@ -17,14 +17,20 @@ export default function ProfessorScreen({ navigation }) {
       id: '2', 
       atividade: 'Atividade de Dislexia', 
       acertos: scores.dislexiaAcertos, 
-      erros: scores.dislexiaErros,     
+      erros: scores.dislexiaErros,    
+      data: 'Sessão Atual' 
+    },
+    { 
+      id: '3', 
+      atividade: 'Atividade de Modo VR', 
+      acertos: scores.vrAcertos, 
+      erros: scores.vrErros,    
       data: 'Sessão Atual' 
     },
   ];
 
   return (
     <View style={styles.container}>
-      
       
       <View style={styles.header}>
         <View style={styles.textoHeader}>
