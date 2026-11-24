@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Image } from 'react-native';
-import Lumi from './Lumi';
 import { falar, pararFala, setSomAtivadoGlobal } from '../services/Som';
 
 export default function Home({ navigation }) {
@@ -39,8 +38,8 @@ export default function Home({ navigation }) {
 
 
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Lumi</Text>
-          <Text style={styles.headerSubtitle}>Suporte Especializado </Text>
+          <Text style={styles.headerTitle}>Adapt</Text>
+          <Text style={styles.headerSubtitle}>Jornada no seu ritmo!</Text>
         </View>
 
 
@@ -50,10 +49,14 @@ export default function Home({ navigation }) {
             onPress={tocarBoasVindas}
             style={styles.balao}
           >
-            <Text style={styles.textoBalao}>Oi, Eu sou a Lumi. Vamos aprender? </Text>
+            <Text style={styles.textoBalao}>Oi, Eu sou a Lumi! Vamos aprender? </Text>
           </TouchableOpacity>
 
-          <Lumi width={180} height={180} />
+         <Image
+  source={require('../../assets/images/axlt.png')}
+  style={styles.imagemLumi}
+  resizeMode="contain"
+/>
         </View>
 
 
@@ -183,5 +186,10 @@ const styles = StyleSheet.create({
   textoBotaoSom: {
     color: '#94A3B8', fontSize: 14, textDecorationLine: 'underline'
   },
+  imagemLumi: {
+  width: 180,
+  height: 180,
+  marginTop: 5,
+},
 
 });

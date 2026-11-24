@@ -5,8 +5,8 @@ export const scores = {
   discalculiaErros: 0,
   dislexiaAcertos: 0,
   dislexiaErros: 0,
-  vrAcertos: 0, // Adicionado
-  vrErros: 0,   // Adicionado
+  vrAcertos: 0,
+  vrErros: 0,
 };
 
 export const addScore = (atividade, resultado) => {
@@ -16,4 +16,10 @@ export const addScore = (atividade, resultado) => {
   if (scores.hasOwnProperty(chave)) {
     scores[chave] += 1;
   }
+};
+
+export const resetScores = () => {
+  Object.keys(scores).forEach((chave) => {
+    scores[chave] = 0;
+  });
 };

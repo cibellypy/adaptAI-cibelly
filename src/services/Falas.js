@@ -19,6 +19,7 @@ export const FALAS = {
   // ---- Home ----
   home: require('../../assets/audios/home.mp3'),
   lumi_boasvindas: require('../../assets/audios/lumi_boasvindas.mp3'),
+  boas_vindas_parquinho: require('../../assets/audios/bemvindo_parquinho.mp3'),
 
   // ---- Dislexia (completo) ----
   correto: require('../../assets/audios/correto.mp3'),
@@ -63,4 +64,26 @@ export const FALAS = {
   acertou: require('../../assets/audios/acertou.mp3'),
   quaseolhebem: require('../../assets/audios/quaseolhebem.mp3'),
   tentecontardenovo: require('../../assets/audios/tentecontardenovo.mp3'),
+
+  // ---- Modo VR: falas fixas ----
+  boas_vindas: require('../../assets/audios/boas_vindas.mp3'),
+  modo_dislexia: require('../../assets/audios/modo_dislexia.mp3'),
+  modo_discalculia: require('../../assets/audios/modo_discalculia.mp3'),
+  feedback_certo: require('../../assets/audios/feedback_certo.mp3'),
+  feedback_errado: require('../../assets/audios/feedback_errado.mp3'),
+  trilha_final: require('../../assets/audios/trilha_final.mp3'),
+
+  // ---- Modo VR: perguntas de Dislexia ----
+  disl_pergunta_1: require('../../assets/audios/disl_pergunta_1.mp3'),
+  disl_pergunta_2: require('../../assets/audios/disl_pergunta_2.mp3'),
+  disl_pergunta_3: require('../../assets/audios/disl_pergunta_3.mp3'),
+  disl_pergunta_4: require('../../assets/audios/disl_pergunta_4.mp3'),
+  disl_pergunta_5: require('../../assets/audios/disl_pergunta_5.mp3'),
+
+  // ---- Modo VR: perguntas de Discalculia ----
+  disc_pergunta_1: require('../../assets/audios/disc_pergunta_1.mp3'),
+  disc_pergunta_2: require('../../assets/audios/disc_pergunta_2.mp3'),
+  disc_pergunta_3: require('../../assets/audios/disc_pergunta_3.mp3'),
+  disc_pergunta_4: require('../../assets/audios/disc_pergunta_4.mp3'),
+  disc_pergunta_5: require('../../assets/audios/disc_pergunta_5.mp3'),
 };

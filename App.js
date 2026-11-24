@@ -1,7 +1,7 @@
+import 'react-native-gesture-handler';
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-
 
 import Home from './src/screens/Home'; 
 import DislexiaScreen from './src/screens/DislexiaScreen';
@@ -11,17 +11,13 @@ import ProfessorScreen from './src/screens/ProfessorScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import ModoVRScreen from './src/screens/ModoVRScreen';
 
-
 const Stack = createStackNavigator();
-
-
 
 export default function App() {
   return (
     <NavigationContainer>
-     <Stack.Navigator initialRouteName="Splash">
+      <Stack.Navigator initialRouteName="Home">
         
-        {/* Nova tela de carregamento */}
         <Stack.Screen 
           name="Splash" 
           component={SplashScreen} 
@@ -34,7 +30,6 @@ export default function App() {
           options={{ headerShown: false }} 
         />
 
-        {/* Outras Telas */}
         <Stack.Screen 
           name="Dislexia" 
           component={DislexiaScreen} 
@@ -59,10 +54,11 @@ export default function App() {
           options={{ title: 'Área do Professor' }} 
         />
 
-        <Stack.Screen name="ModoVR" component={ModoVRScreen}options={{ headerShown: false }} 
-/>
-
-      
+        <Stack.Screen 
+          name="ModoVR" 
+          component={ModoVRScreen}
+          options={{ headerShown: false }} 
+        />
 
       </Stack.Navigator>
     </NavigationContainer>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, PanResponder } from 'react-native';
-import * as Speech from 'expo-speech';
 import { addScore } from '../services/ScoreManager';
-import { falar, falarElogio, falarAleatorio, pararFala } from '../services/Som';
+import { falar, falarElogio, falarAleatorio, pararFala, aguardarPeloMenos } from '../services/Som';
 
 // ============================================================
 // BANCOS DE ATIVIDADES
@@ -110,6 +109,45 @@ export default function DislexiaScreen({ navigation }) {
   const [corFundo, setCorFundo] = useState('#F7FAFC');
   const [expressaoLumi, setExpressaoLumi] = useState('padrao');
 
+  // Protege contra toques/respostas repetidas enquanto o feedback
+  // ou a transição da atividade ainda está acontecendo.
+  const [interacaoBloqueada, setInteracaoBloqueada] = useState(false);
+  const interacaoBloqueadaRef = useRef(false);
+
+  // Controle de ciclo de vida/timers para evitar callbacks antigos
+  // executando depois que a tela foi fechada ou o nível mudou.
+  const timersRef = useRef(new Set());
+  const montadoRef = useRef(true);
+
+  const bloquearInteracao = () => {
+    interacaoBloqueadaRef.current = true;
+    setInteracaoBloqueada(true);
+  };
+
+  const liberarInteracao = () => {
+    interacaoBloqueadaRef.current = false;
+    if (montadoRef.current) {
+      setInteracaoBloqueada(false);
+    }
+  };
+
+  const agendar = (callback, tempo) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+
+      if (!montadoRef.current) return;
+      callback();
+    }, tempo);
+
+    timersRef.current.add(id);
+    return id;
+  };
+
+  const limparTimers = () => {
+    timersRef.current.forEach((id) => clearTimeout(id));
+    timersRef.current.clear();
+  };
+
   // Estado específico do Nível 1
   const [parAtual, setParAtual] = useState(PARES_NIVEL1[0]);
   const [letraAlvo, setLetraAlvo] = useState('B');
@@ -142,11 +180,27 @@ export default function DislexiaScreen({ navigation }) {
   const indiceSeguroNivel4 = Math.min(indiceAtividade, ATIVIDADES_NIVEL4.length - 1);
 
   useEffect(() => {
+    montadoRef.current = true;
+
+    return () => {
+      montadoRef.current = false;
+      limparTimers();
+      pararFala();
+    };
+    // Executa somente ao montar/desmontar a tela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    limparTimers();
     pararFala();
+    interacaoBloqueadaRef.current = false;
+    setInteracaoBloqueada(false);
     setIndiceAtividade(0);
     setAcertosSeguidos(0);
     iniciarFase();
     return () => {
+      limparTimers();
       pararFala();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,10 +232,7 @@ export default function DislexiaScreen({ navigation }) {
       falar(msg, par.chaveAudio[sorteada]);
     } else if (nivel === 2) {
       setMensagem('Nível 2: Complete a palavra');
-      // Usando um pequeno atraso e verificando se já não tá falando para evitar eco duplo
-      setTimeout(() => {
-        falar('Agora complete as palavras.', 'completepalavras');
-      }, 300);
+      falar('Complete a palavra.', 'completepalavras');
     } else if (nivel === 3) {
       montarBandejaNivel3(0);
       setMensagem('Nível 3: Arraste as letras até o lugar certo');
@@ -190,7 +241,7 @@ export default function DislexiaScreen({ navigation }) {
       setImagensInvertidas(Math.random() < 0.5);
       setMensagem('Nível 4: Qual imagem combina com o som?');
       falar('Ouça a palavra e toque na imagem certa.', 'nivel4');
-      setTimeout(() => {
+      agendar(() => {
         const p = ATIVIDADES_NIVEL4[0];
         falar(p.palavraCerta, p.palavraCerta.toLowerCase());
       }, 1800);
@@ -203,7 +254,7 @@ export default function DislexiaScreen({ navigation }) {
     slotRefsArray.current = [];
     setLetrasBandeja(embaralhar(letras));
     setSlotsPreenchidos(Array(atual.palavra.length).fill(null));
-    setTimeout(() => falar(atual.palavra, atual.palavra.toLowerCase()), 600);
+    agendar(() => falar(atual.palavra, atual.palavra.toLowerCase()), 600);
   };
 
   const avancarNivel = () => {
@@ -211,12 +262,14 @@ export default function DislexiaScreen({ navigation }) {
     if (nivel < TOTAL_NIVEIS) {
       setMensagem(`NÍVEL ${nivel} CONCLUÍDO! 🎉`);
       falar('Isso mesmo! Vamos para o próximo desafio.', 'proximodesafio').then(() => {
+        if (!montadoRef.current) return;
         setNivel(nivel + 1);
         setCorFundo('#F7FAFC');
       });
     } else {
       setMensagem('VOCÊ CONCLUIU TODOS OS NÍVEIS! 🏆');
       falar('Parabéns! Você dominou todas as atividades.', 'parabensdominou').then(() => {
+        if (!montadoRef.current) return;
         navigation.navigate('Parabens', { atividade: 'Dislexia' });
       });
     }
@@ -234,33 +287,37 @@ export default function DislexiaScreen({ navigation }) {
     setExpressaoLumi('confusa');
     addScore('dislexia', 'erro');
     setCorFundo('#FED7D7');
-    if (chavesAudio.length > 0) {
-      falarAleatorio(falaFeedback, chavesAudio);
-    } else {
-      falar(falaFeedback);
-    }
-    setTimeout(() => {
+    const promessaFala =
+      chavesAudio.length > 0 ? falarAleatorio(falaFeedback, chavesAudio) : falar(falaFeedback);
+    // Só volta a cor ao normal DEPOIS que a fala de erro tiver tocado inteira
+    Promise.all([promessaFala, aguardarPeloMenos(600)]).then(() => {
+      if (!montadoRef.current) return;
       setCorFundo('#F7FAFC');
       setExpressaoLumi('padrao');
-    }, 1200);
+      liberarInteracao();
+    });
   };
 
   // ------------------------------------------------------------
   // NÍVEL 1 — Letras espelhadas
   // ------------------------------------------------------------
   const verificarNivel1 = (letra) => {
+    if (interacaoBloqueadaRef.current) return;
+    bloquearInteracao();
+
     if (letra === letraAlvo) {
       const novoSaldo = acertosSeguidos + 1;
       if (novoSaldo >= metaNivel1) {
         registrarAcerto('', null);
-        setTimeout(() => avancarNivel(), 300);
+        agendar(() => avancarNivel(), 300);
       } else {
         setAcertosSeguidos(novoSaldo);
         falarElogio();
         registrarAcerto(`Isso! Só mais ${metaNivel1 - novoSaldo}...`, null);
-        setTimeout(() => {
+        agendar(() => {
           setCorFundo('#F7FAFC');
           iniciarFase();
+          liberarInteracao();
         }, 1500);
       }
     } else {
@@ -272,15 +329,19 @@ export default function DislexiaScreen({ navigation }) {
   // NÍVEL 2 — Complete a palavra
   // ------------------------------------------------------------
   const verificarNivel2 = (letra) => {
+    if (interacaoBloqueadaRef.current) return;
+    bloquearInteracao();
+
     const atual = ATIVIDADES_NIVEL2[indiceAtividade];
     if (letra === atual.letraCorreta) {
       falarElogio();
       registrarAcerto('', null);
-      setTimeout(() => {
+      agendar(() => {
         if (indiceAtividade < ATIVIDADES_NIVEL2.length - 1) {
           setIndiceAtividade(indiceAtividade + 1);
           setCorFundo('#F7FAFC');
           setExpressaoLumi('padrao');
+          liberarInteracao();
         } else {
           avancarNivel();
         }
@@ -305,6 +366,8 @@ export default function DislexiaScreen({ navigation }) {
   };
 
   const soltarLetraNivel3 = async (letra, moveX, moveY) => {
+    if (interacaoBloqueadaRef.current) return false;
+
     const atual = PALAVRAS_NIVEL3[indiceAtividade];
 
     let slotIndex = -1;
@@ -336,25 +399,28 @@ export default function DislexiaScreen({ navigation }) {
 
       const completou = novosSlots.every((s) => s !== null);
       if (completou) {
+        bloquearInteracao();
         setCorFundo('#C6F6D5');
         setMensagem('Palavra montada! 🎉');
         falar('Você montou a palavra certinho!', 'montoucertinho');
-        setTimeout(() => {
+        agendar(() => {
           setCorFundo('#F7FAFC');
           if (indiceAtividade < PALAVRAS_NIVEL3.length - 1) {
             const prox = indiceAtividade + 1;
             setIndiceAtividade(prox);
             setExpressaoLumi('padrao');
             montarBandejaNivel3(prox);
+            liberarInteracao();
           } else {
             avancarNivel();
           }
         }, 1800);
       } else {
-        setTimeout(() => setExpressaoLumi('padrao'), 800);
+        agendar(() => setExpressaoLumi('padrao'), 800);
       }
       return true;
     } else {
+      bloquearInteracao();
       registrarErro('Essa letra não é essa, tenta outro espaço!', ['tentaoutroespaco', 'hum_tentamaisumavez']);
       return false;
     }
@@ -364,17 +430,21 @@ export default function DislexiaScreen({ navigation }) {
   // NÍVEL 4 — Discriminação de sons parecidos
   // ------------------------------------------------------------
   const verificarNivel4 = (escolhaCerta) => {
+    if (interacaoBloqueadaRef.current) return;
+    bloquearInteracao();
+
     if (escolhaCerta) {
       falarElogio();
       registrarAcerto('', null);
-      setTimeout(() => {
+      agendar(() => {
         if (indiceAtividade < ATIVIDADES_NIVEL4.length - 1) {
           const prox = indiceAtividade + 1;
           setIndiceAtividade(prox);
           setImagensInvertidas(Math.random() < 0.5);
           setCorFundo('#F7FAFC');
           setExpressaoLumi('padrao');
-          setTimeout(() => {
+          liberarInteracao();
+          agendar(() => {
             const p = ATIVIDADES_NIVEL4[prox];
             falar(p.palavraCerta, p.palavraCerta.toLowerCase());
           }, 500);
@@ -412,9 +482,24 @@ export default function DislexiaScreen({ navigation }) {
       {/* NÍVEL 1 — Letras espelhadas (posições randomizadas) */}
       {nivel === 1 && (
         <View style={styles.areaJogo}>
+          <TouchableOpacity
+            style={styles.botaoOuvirDeNovo}
+            disabled={interacaoBloqueada}
+            onPress={() => {
+              pararFala();
+              falar(`Encontre a letra: ${parAtual.fonemas[letraAlvo]}`, parAtual.chaveAudio[letraAlvo]);
+            }}
+          >
+            <Text style={styles.txtOuvirDeNovo}>🔊 Ouvir de novo</Text>
+          </TouchableOpacity>
           <View style={styles.areaBotoes}>
             {opcoesNivel1Embaralhadas.map((l) => (
-              <TouchableOpacity key={l} style={styles.botaoGrande} onPress={() => verificarNivel1(l)}>
+              <TouchableOpacity
+                key={l}
+                style={styles.botaoGrande}
+                disabled={interacaoBloqueada}
+                onPress={() => verificarNivel1(l)}
+              >
                 <Text style={styles.textoBotao}>{l}</Text>
               </TouchableOpacity>
             ))}
@@ -432,9 +517,24 @@ export default function DislexiaScreen({ navigation }) {
               (letra faltando: {ATIVIDADES_NIVEL2[indiceSeguroNivel2].posicao})
             </Text>
           </View>
+          <TouchableOpacity
+            style={styles.botaoOuvirDeNovo}
+            disabled={interacaoBloqueada}
+            onPress={() => {
+              pararFala();
+              falar('Complete a palavra.', 'completepalavras');
+            }}
+          >
+            <Text style={styles.txtOuvirDeNovo}>🔊 Ouvir de novo</Text>
+          </TouchableOpacity>
           <View style={styles.areaBotoesPequenos}>
             {opcoesNivel2Embaralhadas.map((l) => (
-              <TouchableOpacity key={l} style={styles.botaoPequeno} onPress={() => verificarNivel2(l)}>
+              <TouchableOpacity
+                key={l}
+                style={styles.botaoPequeno}
+                disabled={interacaoBloqueada}
+                onPress={() => verificarNivel2(l)}
+              >
                 <Text style={styles.textoBotaoPequeno}>{l}</Text>
               </TouchableOpacity>
             ))}
@@ -449,6 +549,7 @@ export default function DislexiaScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.botaoOuvirDeNovo}
+            disabled={interacaoBloqueada}
             onPress={() => {
               const atual = PALAVRAS_NIVEL3[indiceSeguroNivel3];
               falar(atual.palavra, atual.palavra.toLowerCase());
@@ -482,6 +583,7 @@ export default function DislexiaScreen({ navigation }) {
         <View style={styles.areaJogo}>
           <TouchableOpacity
             style={styles.botaoOuvirDeNovo}
+            disabled={interacaoBloqueada}
             onPress={() => {
               const p = ATIVIDADES_NIVEL4[indiceSeguroNivel4];
               falar(p.palavraCerta, p.palavraCerta.toLowerCase());

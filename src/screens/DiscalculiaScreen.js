@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
-import * as Speech from 'expo-speech';
 import { addScore } from '../services/ScoreManager';
-import { falar, falarElogio, falarAleatorio } from '../services/Som';
+import { falar, falarElogio, falarAleatorio, pararFala, aguardarPeloMenos } from '../services/Som';
 
 const ATIVIDADES_NIVEL_2 = [
   { id: 1, imagem: '🍎', quantidade: 3, opcoes: [2, 3, 5] },
@@ -19,6 +18,23 @@ export default function DiscalculiaScreen({ navigation }) {
   const [corFundo, setCorFundo] = useState('#F7FAFC');
   const [expressaoLumi, setExpressaoLumi] = useState('padrao');
 
+  // Evita registrar a mesma resposta várias vezes por toque rápido.
+  const [interacaoBloqueada, setInteracaoBloqueada] = useState(false);
+  const interacaoBloqueadaRef = useRef(false);
+  const montadoRef = useRef(true);
+
+  const bloquearInteracao = () => {
+    interacaoBloqueadaRef.current = true;
+    setInteracaoBloqueada(true);
+  };
+
+  const liberarInteracao = () => {
+    interacaoBloqueadaRef.current = false;
+    if (montadoRef.current) {
+      setInteracaoBloqueada(false);
+    }
+  };
+
   const imagensLumi = {
     padrao: require('../../assets/images/axlt.png'),
     heroina: require('../../assets/images/heroLumi.png'),
@@ -28,7 +44,19 @@ export default function DiscalculiaScreen({ navigation }) {
   const metaNivel1 = 3;
 
   useEffect(() => {
+    montadoRef.current = true;
+
+    return () => {
+      montadoRef.current = false;
+      pararFala();
+    };
+  }, []);
+
+  useEffect(() => {
+    interacaoBloqueadaRef.current = false;
+    setInteracaoBloqueada(false);
     iniciarFase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nivel]);
 
   const iniciarFase = () => {
@@ -49,6 +77,9 @@ export default function DiscalculiaScreen({ navigation }) {
   };
 
   const verificarNivel1 = (num) => {
+    if (interacaoBloqueadaRef.current) return;
+    bloquearInteracao();
+
     if (num === numeroAlvo) {
       setExpressaoLumi('heroina');
       const novoSaldo = acertosSeguidos + 1;
@@ -57,64 +88,77 @@ export default function DiscalculiaScreen({ navigation }) {
       
       if (novoSaldo >= metaNivel1) {
         setMensagem('NÍVEL 1 CONCLUÍDO! 🎈');
-        // Elogio sorteado, pra não repetir sempre a mesma fala
-        falarElogio();
-        setTimeout(() => {
+        // Só muda de nível DEPOIS que o elogio tiver tocado inteiro
+        Promise.all([falarElogio(), aguardarPeloMenos(600)]).then(() => {
+          if (!montadoRef.current) return;
           setNivel(2);
           setCorFundo('#F7FAFC');
-          setAcertosSeguidos(0); 
-        }, 2000);
+          setAcertosSeguidos(0);
+        });
       } else {
         setAcertosSeguidos(novoSaldo);
         setMensagem(`Isso! Faltam ${metaNivel1 - novoSaldo}...`);
-        // Elogio sorteado, pra não repetir sempre a mesma fala
-        falarElogio();
-        setTimeout(() => {
+        // Só reinicia a fase DEPOIS que o elogio tiver tocado inteiro
+        Promise.all([falarElogio(), aguardarPeloMenos(600)]).then(() => {
+          if (!montadoRef.current) return;
           setCorFundo('#F7FAFC');
           iniciarFase();
-        }, 1500);
+          liberarInteracao();
+        });
       }
     } else {
       setExpressaoLumi('confusa');
       addScore('discalculia', 'erro');
       setCorFundo('#FFCDD2');
-      // Passa a chave 'quaseolhebem'
-      falarAleatorio("Quase! Olhe bem o formato do número.", ['quaseolhebem', 'hum_tentamaisumavez']);
-      setTimeout(() => {
+      // Só volta o fundo ao normal DEPOIS que a fala de erro tiver tocado inteira
+      Promise.all([
+        falarAleatorio("Quase! Olhe bem o formato do número.", ['quaseolhebem', 'hum_tentamaisumavez']),
+        aguardarPeloMenos(600),
+      ]).then(() => {
+        if (!montadoRef.current) return;
         setCorFundo('#F7FAFC');
         setExpressaoLumi('padrao');
-      }, 1000);
+        liberarInteracao();
+      });
     }
   };
 
   const verificarNivel2 = (escolha) => {
+    if (interacaoBloqueadaRef.current) return;
+    bloquearInteracao();
+
     const atual = ATIVIDADES_NIVEL_2[indiceNivel2];
     if (escolha === atual.quantidade) {
       setExpressaoLumi('heroina'); 
       addScore('discalculia', 'acerto');
       setCorFundo('#C8E6C9');
-      // Elogio sorteado, pra não repetir sempre a mesma fala
-      falarElogio();
-      
-      setTimeout(() => {
+      // Só avança DEPOIS que o elogio tiver tocado inteiro
+      Promise.all([falarElogio(), aguardarPeloMenos(600)]).then(() => {
+        if (!montadoRef.current) return;
+
         if (indiceNivel2 < ATIVIDADES_NIVEL_2.length - 1) {
           setIndiceNivel2(indiceNivel2 + 1);
           setCorFundo('#F7FAFC');
           setExpressaoLumi('padrao');
+          liberarInteracao();
         } else {
           navigation.navigate('Parabens', { atividade: 'Matemática' });
         }
-      }, 1500);
+      });
     } else {
       setExpressaoLumi('confusa');
       addScore('discalculia', 'erro');
       setCorFundo('#FFCDD2');
-      // Passa a chave 'tentecontardenovo'
-      falarAleatorio("Tente contar de novo com calma.", ['tentecontardenovo', 'hum_tentamaisumavez']);
-      setTimeout(() => {
+      // Só volta o fundo ao normal DEPOIS que a fala de erro tiver tocado inteira
+      Promise.all([
+        falarAleatorio("Tente contar de novo com calma.", ['tentecontardenovo', 'hum_tentamaisumavez']),
+        aguardarPeloMenos(600),
+      ]).then(() => {
+        if (!montadoRef.current) return;
         setCorFundo('#F7FAFC');
         setExpressaoLumi('padrao');
-      }, 1000);
+        liberarInteracao();
+      });
     }
   };
 
@@ -138,7 +182,12 @@ export default function DiscalculiaScreen({ navigation }) {
       {nivel === 1 ? (
         <View style={styles.areaBotoes}>
           {[6, 9].map(n => (
-            <TouchableOpacity key={n} style={styles.botaoNumero} onPress={() => verificarNivel1(n)}>
+            <TouchableOpacity
+              key={n}
+              style={styles.botaoNumero}
+              disabled={interacaoBloqueada}
+              onPress={() => verificarNivel1(n)}
+            >
               <Text style={styles.textoNumero}>{n}</Text>
             </TouchableOpacity>
           ))}
@@ -152,7 +201,12 @@ export default function DiscalculiaScreen({ navigation }) {
           </View>
           <View style={styles.areaOpcoes}>
             {ATIVIDADES_NIVEL_2[indiceNivel2].opcoes.map(opt => (
-              <TouchableOpacity key={opt} style={styles.botaoOpcao} onPress={() => verificarNivel2(opt)}>
+              <TouchableOpacity
+                key={opt}
+                style={styles.botaoOpcao}
+                disabled={interacaoBloqueada}
+                onPress={() => verificarNivel2(opt)}
+              >
                 <Text style={styles.textoOpcao}>{opt}</Text>
               </TouchableOpacity>
             ))}

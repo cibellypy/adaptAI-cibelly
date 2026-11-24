@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AdaptAI",
+    "name": "Adapt",
     "slug": "AdaptAI",
     "version": "1.0.0",
     "orientation": "default",
@@ -17,9 +17,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/icon.png"
       },
       "package": "com.anonymous.AdaptAI",
       "permissions": [
@@ -28,12 +26,12 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/icon.png"
     },
     "plugins": [
       "expo-screen-orientation",
-      "expo-audio",
       "expo-asset",
+      "expo-audio",
       "expo-image",
       "expo-status-bar"
     ],

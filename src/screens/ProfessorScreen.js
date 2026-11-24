@@ -1,33 +1,37 @@
-import { scores } from '../services/ScoreManager';
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import Lumi from './Lumi'; 
+import { scores, resetScores } from '../services/ScoreManager';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image} from 'react-native';
+
 
 export default function ProfessorScreen({ navigation }) {
-  
+  // Só serve para forçar a tela a redesenhar depois de zerar.
+  const [, setAtualizar] = useState(0);
+
   const relatorio = [
     { 
       id: '1', 
       atividade: 'Atividade de Discalculia', 
       acertos: scores.discalculiaAcertos, 
       erros: scores.discalculiaErros, 
-      data: 'Sessão Atual' 
     },
     { 
       id: '2', 
       atividade: 'Atividade de Dislexia', 
       acertos: scores.dislexiaAcertos, 
       erros: scores.dislexiaErros,    
-      data: 'Sessão Atual' 
     },
     { 
       id: '3', 
       atividade: 'Atividade de Modo VR', 
       acertos: scores.vrAcertos, 
       erros: scores.vrErros,    
-      data: 'Sessão Atual' 
     },
   ];
+
+  const zerar = () => {
+    resetScores();
+    setAtualizar((n) => n + 1);
+  };
 
   return (
     <View style={styles.container}>
@@ -37,14 +41,26 @@ export default function ProfessorScreen({ navigation }) {
           <Text style={styles.titulo}>Painel do Professor 👩‍🏫</Text>
           <Text style={styles.subtitulo}>Acompanhamento de Desempenho</Text>
         </View>
-        <Lumi width={80} height={80} />
+        <Image
+  source={require('../../assets/images/heroLumi.png')}
+  style={{ width: 80, height: 80 }}
+  resizeMode="contain"
+/>
       </View>
 
       <ScrollView style={styles.lista} showsVerticalScrollIndicator={false}>
-        {relatorio.map((item) => (
+        {relatorio.map((item) => {
+          const total = item.acertos + item.erros;
+          const porcentagem = total > 0 ? Math.round((item.acertos / total) * 100) : null;
+
+          return (
           <View key={item.id} style={styles.cardRelatorio}>
             <Text style={styles.nomeAtividade}>{item.atividade}</Text>
-            <Text style={styles.dataText}>Última tentativa: {item.data}</Text>
+            <Text style={styles.dataText}>
+              {total > 0
+                ? `${total} respostas · ${porcentagem}% de acerto`
+                : 'Ainda não houve tentativas'}
+            </Text>
             
             <View style={styles.stats}>
               <View style={[styles.statBox, { backgroundColor: '#C8E6C9' }]}>
@@ -58,8 +74,17 @@ export default function ProfessorScreen({ navigation }) {
               </View>
             </View>
           </View>
-        ))}
+          );
+        })}
+
+        <Text style={styles.aviso}>
+          O Adapt é uma ferramenta de apoio ao aprendizado e não substitui a avaliação de um profissional.
+        </Text>
       </ScrollView>
+
+      <TouchableOpacity style={styles.btnZerar} onPress={zerar}>
+        <Text style={styles.txtZerar}>Zerar pontuação</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity style={styles.btnVoltar} onPress={() => navigation.goBack()}>
         <Text style={styles.txtVoltar}>Voltar ao Menu</Text>
@@ -97,13 +122,17 @@ const styles = StyleSheet.create({
   },
   
   nomeAtividade: { fontSize: 18, fontWeight: 'bold', color: '#2D3748' },
-  dataText: { fontSize: 12, color: '#A0AEC0', marginBottom: 15 },
+  dataText: { fontSize: 13, color: '#718096', marginBottom: 15 },
   
   stats: { flexDirection: 'row', justifyContent: 'space-between' },
   statBox: { flex: 1, padding: 10, borderRadius: 10, alignItems: 'center', marginHorizontal: 5 },
   statNumero: { fontSize: 20, fontWeight: 'bold', color: '#1A365D' },
   statLabel: { fontSize: 12, color: '#2D3748' },
   
+  aviso: { fontSize: 12, color: '#718096', textAlign: 'center', marginTop: 5, marginBottom: 15 },
+  btnZerar: { padding: 12, alignItems: 'center' },
+  txtZerar: { color: '#C53030', fontWeight: 'bold', fontSize: 14, textDecorationLine: 'underline' },
+
   btnVoltar: { 
     backgroundColor: '#1A365D', 
     padding: 18, 
