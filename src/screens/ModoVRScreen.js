@@ -8,6 +8,7 @@ import {
   Image,
   Animated,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -151,7 +152,6 @@ const PERGUNTAS_POR_PORTAL = 3;
 
 const FALAS_VR_PRELOAD = [
   'boas_vindas',
-  'boas_vindas_parquinho',
   'modo_dislexia',
   'modo_discalculia',
   'disl_pergunta_1',
@@ -235,6 +235,7 @@ function montarHtmlCena({
   portalUri,
   efeitos = 'floresta',
   rotacaoCeuY = -90,
+  larguraTelaMm = 0,
 }) {
   return `
 <!DOCTYPE html>
@@ -245,7 +246,6 @@ function montarHtmlCena({
     name="viewport"
     content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
   >
-
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
   <style>
@@ -260,14 +260,12 @@ function montarHtmlCena({
       -webkit-user-select: none;
       user-select: none;
     }
-
     a-scene {
       position: fixed;
       inset: 0;
       width: 100%;
       height: 100%;
     }
-
     canvas {
       position: absolute;
       inset: 0;
@@ -276,34 +274,18 @@ function montarHtmlCena({
       height: 100% !important;
       touch-action: none;
     }
-
-    /* Máscara simulando as lentes do VR Box nas duas metades */
-    body::before {
-      content: '';
-      position: fixed;
-      top: 0; left: 0; width: 50%; height: 100%;
-      box-shadow: inset 0 0 70px 35px #000;
-      pointer-events: none;
-      z-index: 999;
-    }
-    body::after {
-      content: '';
-      position: fixed;
-      top: 0; left: 50%; width: 50%; height: 100%;
-      box-shadow: inset 0 0 70px 35px #000;
-      pointer-events: none;
-      z-index: 999;
-    }
   </style>
 
   <script>
     AFRAME.registerComponent('adaptai-cardboard', {
       schema: {
         enabled: { default: true },
-        eyeSep: { default: 0.015 },
+        eyeSep: { default: 0.063 },
         maxDpr: { default: 2.0 },
+        lensMm: { default: 63 },
+        telaMm: { default: 0 },
+        ajusteMm: { default: 0 },
       },
-
       init: function () {
         const componente = this;
         const cena = this.el;
@@ -311,7 +293,6 @@ function montarHtmlCena({
         cena.addEventListener('renderstart', function () {
           const renderer = cena.renderer;
           if (!renderer || renderer.__adaptaiStereoAtivo) return;
-
           renderer.__adaptaiStereoAtivo = true;
 
           const renderOriginal = renderer.render.bind(renderer);
@@ -323,22 +304,11 @@ function montarHtmlCena({
           let ultimoDpr = 0;
 
           function ajustarRenderer(forcar) {
-            const larguraJanela = Math.max(
-              2,
-              Math.round(window.innerWidth || document.documentElement.clientWidth || 2)
-            );
-            const alturaJanela = Math.max(
-              1,
-              Math.round(window.innerHeight || document.documentElement.clientHeight || 1)
-            );
+            const larguraJanela = Math.max(2, Math.round(window.innerWidth || document.documentElement.clientWidth || 2));
+            const alturaJanela = Math.max(1, Math.round(window.innerHeight || document.documentElement.clientHeight || 1));
             const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), componente.data.maxDpr);
 
-            if (
-              !forcar &&
-              larguraJanela === ultimaLargura &&
-              alturaJanela === ultimaAltura &&
-              Math.abs(dpr - ultimoDpr) < 0.001
-            ) {
+            if (!forcar && larguraJanela === ultimaLargura && alturaJanela === ultimaAltura && Math.abs(dpr - ultimoDpr) < 0.001) {
               return;
             }
 
@@ -358,26 +328,21 @@ function montarHtmlCena({
           }
 
           function reajustarDepoisDaRotacao() {
-            requestAnimationFrame(function () { ajustarRenderer(true); });
-            setTimeout(function () { ajustarRenderer(true); }, 80);
-            setTimeout(function () { ajustarRenderer(true); }, 300);
+            requestAnimationFrame(() => ajustarRenderer(true));
+            setTimeout(() => ajustarRenderer(true), 80);
+            setTimeout(() => ajustarRenderer(true), 300);
           }
 
           window.addEventListener('resize', reajustarDepoisDaRotacao, { passive: true });
           window.addEventListener('orientationchange', reajustarDepoisDaRotacao, { passive: true });
-          document.addEventListener('visibilitychange', function () {
+          document.addEventListener('visibilitychange', () => {
             if (!document.hidden) reajustarDepoisDaRotacao();
           });
 
           ajustarRenderer(true);
 
           renderer.render = function (scene3D, camera) {
-            if (
-              !componente.data.enabled ||
-              !camera ||
-              !camera.isPerspectiveCamera ||
-              (renderer.xr && renderer.xr.isPresenting)
-            ) {
+            if (!componente.data.enabled || !camera || !camera.isPerspectiveCamera || (renderer.xr && renderer.xr.isPresenting)) {
               return renderOriginal(scene3D, camera);
             }
 
@@ -400,6 +365,18 @@ function montarHtmlCena({
             camera.updateMatrixWorld(true);
             stereo.update(camera);
 
+            const telaMm = componente.data.telaMm > 0 ? componente.data.telaMm : 145;
+            const lenteMm = componente.data.lensMm + componente.data.ajusteMm;
+            const metadeTelaMm = telaMm / 2;
+            const deslocamento = Math.max(-0.45, Math.min(0.45, (metadeTelaMm / 2 - lenteMm / 2) / (metadeTelaMm / 2)));
+
+            stereo.cameraL.projectionMatrix.copy(camera.projectionMatrix);
+            stereo.cameraR.projectionMatrix.copy(camera.projectionMatrix);
+            stereo.cameraL.projectionMatrix.elements[8] = -deslocamento;
+            stereo.cameraR.projectionMatrix.elements[8] = deslocamento;
+            stereo.cameraL.projectionMatrixInverse.copy(stereo.cameraL.projectionMatrix).invert();
+            stereo.cameraR.projectionMatrixInverse.copy(stereo.cameraR.projectionMatrix).invert();
+
             const autoClearAnterior = renderer.autoClear;
             renderer.autoClear = false;
             renderer.setScissorTest(false);
@@ -407,13 +384,10 @@ function montarHtmlCena({
             renderer.clear(true, true, true);
 
             renderer.setScissorTest(true);
-
-            // Olho esquerdo
             renderer.setViewport(0, 0, larguraEsquerda, altura);
             renderer.setScissor(0, 0, larguraEsquerda, altura);
             renderOriginal(scene3D, stereo.cameraL);
 
-            // Olho direito
             renderer.setViewport(larguraEsquerda, 0, larguraDireita, altura);
             renderer.setScissor(larguraEsquerda, 0, larguraDireita, altura);
             renderOriginal(scene3D, stereo.cameraR);
@@ -432,7 +406,7 @@ function montarHtmlCena({
   <a-scene
     id="scene"
     embedded
-    adaptai-cardboard="enabled: true; eyeSep: 0.015; maxDpr: 2.0"
+    adaptai-cardboard="enabled: true; eyeSep: 0.063; maxDpr: 2.0; lensMm: 63; telaMm: ${Number(larguraTelaMm) || 0}; ajusteMm: 0"
     device-orientation-permission-ui="enabled: false"
     loading-screen="enabled: false"
     xr-mode-ui="enabled: false"
@@ -454,10 +428,7 @@ function montarHtmlCena({
     ></a-sky>
 
     <a-entity light="type: ambient; color: #FFF; intensity: 0.92"></a-entity>
-    <a-entity
-      light="type: directional; color: #FFF; intensity: 0.55"
-      position="1 3 2"
-    ></a-entity>
+    <a-entity light="type: directional; color: #FFF; intensity: 0.55" position="1 3 2"></a-entity>
 
     <a-entity id="rig" position="0 0 0">
       <a-camera
@@ -473,8 +444,8 @@ function montarHtmlCena({
           fuse-timeout="${TEMPO_FUSE_MS}"
           raycaster="objects: .alvo; far: 20; interval: 40"
           material="color: #FFFFFF; shader: flat; opacity: 0.92"
-          geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.020; segmentsTheta: 32"
-          position="0 0 -1"
+          geometry="primitive: ring; radiusInner: 0.036; radiusOuter: 0.060; segmentsTheta: 32"
+          position="0 0 -3"
           animation__fusing="property: scale; startEvents: fusing; from: 1 1 1; to: 0.55 0.55 0.55; dur: ${TEMPO_FUSE_MS}"
           animation__reset="property: scale; startEvents: mouseleave; to: 1 1 1; dur: 120"
         ></a-cursor>
@@ -511,34 +482,6 @@ function montarHtmlCena({
           <a-entity id="hud-progresso" position="0 0.73 -2.28"></a-entity>
         </a-entity>
       </a-camera>
-
-      <!-- BOTÃO DE VOLTAR ATRÁS DA PESSOA (Nas Costas / Rotação 180°) -->
-      <a-entity
-        id="btn-voltar-atras"
-        class="alvo"
-        position="0 1.6 2.5"
-        rotation="0 180 0"
-        geometry="primitive: plane; width: 1.4; height: 0.55"
-        material="color: #EF4444; shader: flat; opacity: 0.95; transparent: true; side: double"
-        animation__flutuar="property: position; dir: alternate; loop: true; dur: 1800; easing: easeInOutSine; to: 0 1.68 2.5"
-      >
-        <a-plane
-          class="alvo"
-          width="1.48"
-          height="0.63"
-          position="0 0 -0.01"
-          material="color: #B91C1C; shader: flat; opacity: 0.95; side: double"
-        ></a-plane>
-        <a-text
-          value="VOLTAR AO MENU"
-          align="center"
-          anchor="center"
-          baseline="center"
-          position="0 0 0.03"
-          width="2.4"
-          color="#FFFFFF"
-        ></a-text>
-      </a-entity>
     </a-entity>
 
     <a-entity id="alvos"></a-entity>
@@ -558,7 +501,6 @@ function montarHtmlCena({
       const vagalumes = document.querySelector('#vagalumes');
       const petalas = document.querySelector('#petalas');
       const particulas = document.querySelector('#particulas');
-      const btnVoltarAtras = document.querySelector('#btn-voltar-atras');
 
       const hudPergunta = document.querySelector('#hud-pergunta');
       const hudPainel = document.querySelector('#hud-painel');
@@ -574,7 +516,6 @@ function montarHtmlCena({
             const mesh = sky.getObject3D('mesh');
             if (mesh) {
               mesh.frustumCulled = false;
-
               if (mesh.material) {
                 mesh.material.depthWrite = false;
                 mesh.material.needsUpdate = true;
@@ -608,7 +549,6 @@ function montarHtmlCena({
       let errosNaQuestao = 0;
       let proximaOrdem = 1;
       let totalSequencia = 0;
-      let ultimoPayload = null;
 
       function enviarParaApp(dados) {
         try {
@@ -763,9 +703,7 @@ function montarHtmlCena({
           particulas.appendChild(part);
         }
 
-        setTimeout(function () {
-          limparFilhos(particulas);
-        }, 850);
+        setTimeout(() => limparFilhos(particulas), 850);
       }
 
       function iniciarVagalumes() {
@@ -786,20 +724,11 @@ function montarHtmlCena({
           vaga.setAttribute('material', 'color: #FFF3A6; shader: flat; opacity: 0.80; transparent: true');
           vaga.setAttribute(
             'animation__mov',
-            'property: position; dir: alternate; loop: true; dur: ' +
-              duracao +
-              '; easing: easeInOutSine; to: ' +
-              x2 +
-              ' ' +
-              y2 +
-              ' ' +
-              z2
+            'property: position; dir: alternate; loop: true; dur: ' + duracao + '; easing: easeInOutSine; to: ' + x2 + ' ' + y2 + ' ' + z2
           );
           vaga.setAttribute(
             'animation__pisca',
-            'property: material.opacity; dir: alternate; loop: true; dur: ' +
-              Math.round(700 + Math.random() * 900) +
-              '; from: 0.25; to: 0.95'
+            'property: material.opacity; dir: alternate; loop: true; dur: ' + Math.round(700 + Math.random() * 900) + '; from: 0.25; to: 0.95'
           );
           vagalumes.appendChild(vaga);
         }
@@ -808,10 +737,7 @@ function montarHtmlCena({
       function iniciarPetalas() {
         if (petalas.childElementCount > 0) return;
 
-        const paleta =
-          EFEITOS === 'parquinho'
-            ? ['#FCD34D', '#93C5FD', '#F9A8D4', '#86EFAC']
-            : ['#F9A8D4'];
+        const paleta = EFEITOS === 'parquinho' ? ['#FCD34D', '#93C5FD', '#F9A8D4', '#86EFAC'] : ['#F9A8D4'];
 
         for (let i = 0; i < 12; i += 1) {
           const petala = document.createElement('a-circle');
@@ -831,26 +757,11 @@ function montarHtmlCena({
           );
           petala.setAttribute(
             'animation__cair',
-            'property: position; loop: true; dur: ' +
-              duracao +
-              '; easing: linear; from: ' +
-              x +
-              ' ' +
-              yInicio +
-              ' ' +
-              z +
-              '; to: ' +
-              (x + 0.45) +
-              ' ' +
-              yFim +
-              ' ' +
-              z
+            'property: position; loop: true; dur: ' + duracao + '; easing: linear; from: ' + x + ' ' + yInicio + ' ' + z + '; to: ' + (x + 0.45) + ' ' + yFim + ' ' + z
           );
           petala.setAttribute(
             'animation__girar',
-            'property: rotation; loop: true; dur: ' +
-              Math.round(2600 + Math.random() * 3000) +
-              '; to: 360 360 180; easing: linear'
+            'property: rotation; loop: true; dur: ' + Math.round(2600 + Math.random() * 3000) + '; to: 360 360 180; easing: linear'
           );
           petalas.appendChild(petala);
         }
@@ -868,11 +779,7 @@ function montarHtmlCena({
         if (!correto) {
           card.setAttribute(
             'animation__erro',
-            'property: rotation; dir: alternate; loop: 4; dur: 70; from: 0 ' +
-              card.getAttribute('rotation').y +
-              ' -2; to: 0 ' +
-              card.getAttribute('rotation').y +
-              ' 2'
+            'property: rotation; dir: alternate; loop: 4; dur: 70; from: 0 ' + card.getAttribute('rotation').y + ' -2; to: 0 ' + card.getAttribute('rotation').y + ' 2'
           );
         }
       }
@@ -880,7 +787,6 @@ function montarHtmlCena({
       function destacarDica() {
         try {
           let alvo = null;
-
           if (totalSequencia > 0) {
             const pecas = alvos.querySelectorAll('[data-sequencia="true"]');
             pecas.forEach(function (c) {
@@ -920,9 +826,7 @@ function montarHtmlCena({
           if (opcao.acao) {
             bloqueado = true;
             enviarParaApp({ tipo: 'clique', acao: opcao.acao });
-            setTimeout(function () {
-              bloqueado = false;
-            }, 350);
+            setTimeout(() => { bloqueado = false; }, 350);
             return;
           }
 
@@ -931,17 +835,13 @@ function montarHtmlCena({
             marcarCard(card, true);
             explosaoDeParticulas();
             enviarParaApp({ tipo: 'clique', acao: 'responder', correta: true });
-            setTimeout(function () {
-              bloqueado = false;
-            }, 900);
+            setTimeout(() => { bloqueado = false; }, 900);
           } else {
             marcarCard(card, false);
             enviarParaApp({ tipo: 'clique', acao: 'responder', correta: false });
             errosNaQuestao += 1;
-            if (errosNaQuestao >= 2) {
-              destacarDica();
-            }
-            setTimeout(function () {
+            if (errosNaQuestao >= 2) destacarDica();
+            setTimeout(() => {
               card.removeAttribute('animation__erro');
               card.setAttribute(
                 'material',
@@ -957,7 +857,6 @@ function montarHtmlCena({
       function resetarSequenciaVisual() {
         proximaOrdem = 1;
         const cards = alvos.querySelectorAll('[data-sequencia="true"]');
-
         cards.forEach(function (card) {
           card.__selecionado = false;
           card.setAttribute('scale', '1 1 1');
@@ -976,7 +875,6 @@ function montarHtmlCena({
 
         card.addEventListener('click', function () {
           if (bloqueado || card.__selecionado) return;
-
           const ordem = Number(peca.ordem);
 
           if (ordem === proximaOrdem) {
@@ -988,19 +886,15 @@ function montarHtmlCena({
               bloqueado = true;
               explosaoDeParticulas();
               enviarParaApp({ tipo: 'clique', acao: 'responder', correta: true });
-              setTimeout(function () {
-                bloqueado = false;
-              }, 900);
+              setTimeout(() => { bloqueado = false; }, 900);
             }
           } else {
             marcarCard(card, false);
             enviarParaApp({ tipo: 'clique', acao: 'responder', correta: false });
             errosNaQuestao += 1;
-            setTimeout(function () {
+            setTimeout(() => {
               resetarSequenciaVisual();
-              if (errosNaQuestao >= 2) {
-                destacarDica();
-              }
+              if (errosNaQuestao >= 2) destacarDica();
             }, 650);
           }
         });
@@ -1046,8 +940,7 @@ function montarHtmlCena({
 
         portal.setAttribute(
           'animation__flutuar',
-          'property: position; dir: alternate; loop: true; dur: 1700; easing: easeInOutSine; to: ' +
-            p.x + ' ' + (p.y + 0.10) + ' ' + p.z
+          'property: position; dir: alternate; loop: true; dur: 1700; easing: easeInOutSine; to: ' + p.x + ' ' + (p.y + 0.10) + ' ' + p.z
         );
 
         aplicarHover(portal);
@@ -1066,27 +959,20 @@ function montarHtmlCena({
         function ativarPortal() {
           if (bloqueado) return;
           bloqueado = true;
-
           portal.setAttribute(
             'animation__entrar',
             'property: scale; to: 1.12 1.12 1.12; dur: 180; dir: alternate; loop: 1; easing: easeOutQuad'
           );
-
           enviarParaApp({ tipo: 'clique', acao: 'avancar' });
-
-          setTimeout(function () {
-            bloqueado = false;
-          }, 1200);
+          setTimeout(() => { bloqueado = false; }, 1200);
         }
 
         hitboxPortal.addEventListener('click', ativarPortal);
         portal.addEventListener('click', ativarPortal);
-
         alvos.appendChild(portal);
       }
 
       function renderizarConteudo(payload) {
-        ultimoPayload = payload;
         limparFilhos(alvos);
         bloqueado = false;
         proximaOrdem = 1;
@@ -1113,7 +999,6 @@ function montarHtmlCena({
 
       function atualizarProgresso(concluidas, total, atual) {
         limparFilhos(hudProgresso);
-
         const qtd = Math.max(0, Number(total || 0));
         if (!qtd) return;
 
@@ -1129,9 +1014,7 @@ function montarHtmlCena({
           ponto.setAttribute('position', (-larguraTotal / 2 + i * espacamento) + ' 0 0');
           ponto.setAttribute(
             'material',
-            'shader: flat; color: ' +
-              (feito ? '#FCD34D' : corrente ? '#FFFFFF' : '#8B86A9') +
-              '; opacity: 0.95; transparent: true'
+            'shader: flat; color: ' + (feito ? '#FCD34D' : corrente ? '#FFFFFF' : '#8B86A9') + '; opacity: 0.95; transparent: true'
           );
           hudProgresso.appendChild(ponto);
         }
@@ -1149,20 +1032,11 @@ function montarHtmlCena({
         );
 
         if (dados.feedback === 'correto') {
-          hudBorda.setAttribute(
-            'material',
-            'color: #86EFAC; shader: flat; opacity: 0.82; transparent: true'
-          );
+          hudBorda.setAttribute('material', 'color: #86EFAC; shader: flat; opacity: 0.82; transparent: true');
         } else if (dados.feedback === 'errado') {
-          hudBorda.setAttribute(
-            'material',
-            'color: #FDA4AF; shader: flat; opacity: 0.82; transparent: true'
-          );
+          hudBorda.setAttribute('material', 'color: #FDA4AF; shader: flat; opacity: 0.82; transparent: true');
         } else {
-          hudBorda.setAttribute(
-            'material',
-            'color: #E9C46A; shader: flat; opacity: 0.72; transparent: true'
-          );
+          hudBorda.setAttribute('material', 'color: #E9C46A; shader: flat; opacity: 0.72; transparent: true');
         }
       }
 
@@ -1176,37 +1050,22 @@ function montarHtmlCena({
         const qFinal = offsetYaw.clone().multiply(ultimaOrientacaoBruta);
         camera.object3D.quaternion.copy(qFinal);
         camera.object3D.updateMatrixWorld(true);
-
-        enviarParaApp({
-          tipo: 'debug',
-          mensagem: 'Visão recentralizada somente no eixo horizontal (yaw).',
-        });
       }
 
       function agendarCalibracaoAutomatica() {
         if (autoCalibrado || timerAutoCalibracao) return;
 
-        timerAutoCalibracao = setTimeout(function () {
+        timerAutoCalibracao = setTimeout(() => {
           timerAutoCalibracao = null;
           centralizarVisao();
           autoCalibrado = true;
-
-          enviarParaApp({
-            tipo: 'debug',
-            mensagem: 'Calibração horizontal automática concluída.',
-          });
         }, 900);
       }
 
       const zee = new THREE.Vector3(0, 0, 1);
       const euler = new THREE.Euler();
       const q0 = new THREE.Quaternion();
-      const q1 = new THREE.Quaternion(
-        -Math.sqrt(0.5),
-        0,
-        0,
-        Math.sqrt(0.5)
-      );
+      const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
       function assumirControleNativo(nomeFonte) {
         if (!sensorNativoAtivo) {
@@ -1218,146 +1077,139 @@ function montarHtmlCena({
             'enabled: false; reverseMouseDrag: false; magicWindowTrackingEnabled: false; touchEnabled: false; mouseEnabled: false'
           );
 
-          enviarParaApp({
-            tipo: 'debug',
-            mensagem: nomeFonte + ' assumiu o controle da câmera.',
-          });
-
           agendarCalibracaoAutomatica();
           return;
         }
-
         fonteSensorAtiva = nomeFonte;
       }
 
       function aplicarOrientacaoNativa(rotacao, orientacaoTela) {
         if (!rotacao || !camera) return;
-
         assumirControleNativo('DeviceMotion');
 
         const alpha = Number(rotacao.alpha || 0);
         const beta = Number(rotacao.beta || 0);
         const gamma = Number(rotacao.gamma || 0);
-
-        const orient = THREE.MathUtils.degToRad(
-          Number(orientacaoTela || -90)
-        );
+        const orient = THREE.MathUtils.degToRad(Number(orientacaoTela || -90));
 
         euler.set(beta, alpha, -gamma, 'YXZ');
 
         const qSensor = new THREE.Quaternion();
         qSensor.setFromEuler(euler);
         qSensor.multiply(q1);
-        qSensor.multiply(
-          q0.setFromAxisAngle(zee, -orient)
-        );
+        qSensor.multiply(q0.setFromAxisAngle(zee, -orient));
 
         ultimaOrientacaoBruta.copy(qSensor);
         possuiOrientacaoBruta = true;
 
-        const qFinal =
-          offsetYaw.clone().multiply(qSensor);
-
+        const qFinal = offsetYaw.clone().multiply(qSensor);
         camera.object3D.quaternion.copy(qFinal);
         camera.object3D.updateMatrixWorld(true);
       }
 
       function aplicarGiroscopioNativo(velocidade, deltaTempo) {
         if (!velocidade || !camera) return;
-
         assumirControleNativo('Gyroscope fallback');
-
-        const xBruto = Number(velocidade.x || 0);
-        const yBruto = Number(velocidade.y || 0);
-
-        const x = Math.abs(xBruto) < 0.015 ? 0 : xBruto;
-        const y = Math.abs(yBruto) < 0.015 ? 0 : yBruto;
 
         if (!gyroInicializado) {
           gyroInicializado = true;
-
-          gyroOrientacaoBruta.copy(
-            camera.object3D.quaternion
-          );
-
-          ultimaOrientacaoBruta.copy(
-            gyroOrientacaoBruta
-          );
-
+          gyroOrientacaoBruta.copy(camera.object3D.quaternion);
+          ultimaOrientacaoBruta.copy(gyroOrientacaoBruta);
           possuiOrientacaoBruta = true;
-
           offsetYaw.identity();
         }
 
-        const dt = Math.min(
-          0.05,
-          Math.max(
-            0.001,
-            Number(deltaTempo || 0.016)
-          )
-        );
+        const dt = Math.min(0.05, Math.max(0.001, Number(deltaTempo || 0.016)));
+        const x = Number(velocidade.x || 0);
+        const y = Number(velocidade.y || 0);
 
         const pitchDelta = -y * dt;
         const yawDelta = -x * dt;
-
         const limite = THREE.MathUtils.degToRad(8);
-        const pitchSeguro = THREE.MathUtils.clamp(
-          pitchDelta,
-          -limite,
-          limite
-        );
-        const yawSeguro = THREE.MathUtils.clamp(
-          yawDelta,
-          -limite,
-          limite
-        );
-
-        const magnitude = Math.sqrt(
-          pitchSeguro * pitchSeguro +
-          yawSeguro * yawSeguro
-        );
+        const pitchSeguro = THREE.MathUtils.clamp(pitchDelta, -limite, limite);
+        const yawSeguro = THREE.MathUtils.clamp(yawDelta, -limite, limite);
+        const magnitude = Math.sqrt(pitchSeguro * pitchSeguro + yawSeguro * yawSeguro);
 
         if (magnitude > 0.000001) {
           gyroEixo.set(0, 1, 0);
-          gyroDeltaQuat.setFromAxisAngle(
-            gyroEixo,
-            yawSeguro
-          );
-          gyroOrientacaoBruta.multiply(
-            gyroDeltaQuat
-          );
+          gyroDeltaQuat.setFromAxisAngle(gyroEixo, yawSeguro);
+          gyroOrientacaoBruta.multiply(gyroDeltaQuat);
 
           gyroEixo.set(1, 0, 0);
-          gyroDeltaQuat.setFromAxisAngle(
-            gyroEixo,
-            pitchSeguro
-          );
-          gyroOrientacaoBruta.multiply(
-            gyroDeltaQuat
-          );
+          gyroDeltaQuat.setFromAxisAngle(gyroEixo, pitchSeguro);
+          gyroOrientacaoBruta.multiply(gyroDeltaQuat);
 
           gyroOrientacaoBruta.normalize();
         }
 
-        ultimaOrientacaoBruta.copy(
-          gyroOrientacaoBruta
-        );
+        ultimaOrientacaoBruta.copy(gyroOrientacaoBruta);
         possuiOrientacaoBruta = true;
 
-        const qFinal =
-          offsetYaw.clone().multiply(
-            gyroOrientacaoBruta
-          );
-
+        const qFinal = offsetYaw.clone().multiply(gyroOrientacaoBruta);
         camera.object3D.quaternion.copy(qFinal);
         camera.object3D.updateMatrixWorld(true);
+      }
+
+      let btnLobby = null;
+      let ultimoCliqueLobby = 0;
+
+      function criarBotaoLobby() {
+        if (btnLobby) return;
+
+        // Posiciona permanentemente nas costas do usuario (180 graus)
+        const p = posicaoPolar(180, 3.2, 1.5);
+        const card = document.createElement('a-entity');
+
+        card.classList.add('alvo');
+        card.setAttribute('position', p.x + ' ' + p.y + ' ' + p.z);
+        card.setAttribute('rotation', '0 ' + (p.rotY + 180) + ' 0');
+        card.setAttribute('geometry', 'primitive: plane; width: 2.2; height: 1.2');
+        card.setAttribute(
+          'material',
+          'color: #EF4444; shader: flat; opacity: 0.98; transparent: true; side: double'
+        );
+
+        const borda = document.createElement('a-plane');
+        borda.setAttribute('width', '2.32');
+        borda.setAttribute('height', '1.32');
+        borda.setAttribute('position', '0 0 -0.018');
+        borda.setAttribute('material', 'color: #7F1D1D; shader: flat; opacity: 0.95');
+        card.appendChild(borda);
+
+        criarTexto(card, 'VOLTAR AO LOBBY', 1.9, '0 0 0.04', '#FFFFFF');
+        aplicarHover(card);
+
+        const acionarVoltarLobby = function () {
+          const agora = Date.now();
+          if (agora - ultimoCliqueLobby < 1500) return;
+          ultimoCliqueLobby = agora;
+
+          card.setAttribute('material', 'color: #16A34A; shader: flat; opacity: 0.98; transparent: true; side: double');
+          enviarParaApp({ tipo: 'clique', acao: 'voltar-lobby' });
+
+          setTimeout(() => {
+            card.setAttribute('material', 'color: #EF4444; shader: flat; opacity: 0.98; transparent: true; side: double');
+          }, 1500);
+        };
+
+        card.addEventListener('click', acionarVoltarLobby);
+
+        cursor.addEventListener('fuse-complete', function () {
+          const raycaster = cursor.components && cursor.components.raycaster;
+          const intersectados = raycaster && raycaster.intersectedEls;
+          if (intersectados && intersectados.includes(card)) {
+            acionarVoltarLobby();
+          }
+        });
+
+        scene.appendChild(card);
+        btnLobby = card;
       }
 
       let ultimoAcionamentoControle = 0;
 
       function ativarAlvoMirado(origem) {
         const agora = Date.now();
-
         if (agora - ultimoAcionamentoControle < 350) return;
 
         try {
@@ -1377,125 +1229,39 @@ function montarHtmlCena({
         } catch (e) {}
       }
 
-      function tentarAtivarComTecla(evento) {
-        enviarParaApp({
-          tipo: 'debug',
-          mensagem: 'controle-keydown',
-          key: evento.key || '',
-          code: evento.code || '',
-          keyCode: Number(evento.keyCode || 0),
-        });
-
+      document.addEventListener('keydown', (evento) => {
         const codigos = [13, 23, 32, 66, 96];
         const teclas = ['Enter', ' ', 'Spacebar', 'MediaPlayPause'];
-
-        const codigoReconhecido = codigos.includes(evento.keyCode);
-        const teclaReconhecida = teclas.includes(evento.key);
-
-        if (!codigoReconhecido && !teclaReconhecida) return;
-
-        evento.preventDefault && evento.preventDefault();
-        ativarAlvoMirado('controle-bluetooth');
-      }
-
-      function tentarAtivarComCliqueExterno(evento) {
-        const alvoDireto = evento.target && evento.target.closest
-          ? evento.target.closest('.alvo')
-          : null;
-
-        if (alvoDireto) return;
-
-        ativarAlvoMirado('controle-toque');
-      }
-
-      if (btnVoltarAtras) {
-        aplicarHover(btnVoltarAtras);
-
-        const sairParaTelaInicial = function () {
-          if (bloqueado) return;
-          bloqueado = true;
-          btnVoltarAtras.setAttribute('material', 'color: #991B1B; shader: flat; side: double');
-          enviarParaApp({ tipo: 'clique', acao: 'sair-vr' });
-        };
-
-        btnVoltarAtras.addEventListener('click', sairParaTelaInicial);
-        const planoFilho = btnVoltarAtras.querySelector('a-plane');
-        if (planoFilho) {
-          planoFilho.addEventListener('click', sairParaTelaInicial);
+        if (codigos.includes(evento.keyCode) || teclas.includes(evento.key)) {
+          evento.preventDefault && evento.preventDefault();
+          ativarAlvoMirado('controle-bluetooth');
         }
-      }
+      }, true);
 
-      document.addEventListener('keydown', tentarAtivarComTecla, true);
-      document.addEventListener('click', tentarAtivarComCliqueExterno, true);
+      document.addEventListener('click', (evento) => {
+        const alvoDireto = evento.target && evento.target.closest ? evento.target.closest('.alvo') : null;
+        if (alvoDireto) return;
+        ativarAlvoMirado('controle-toque');
+      }, true);
 
       function receberMensagem(event) {
         try {
           const dados = JSON.parse(event.data);
-
-          if (dados.tipo === 'conteudo') {
-            renderizarConteudo(dados);
-            return;
-          }
-
-          if (dados.tipo === 'hud') {
-            atualizarHud(dados);
-            return;
-          }
-
-          if (dados.tipo === 'centralizar') {
-            centralizarVisao();
-            return;
-          }
-
-          if (dados.tipo === 'sensor-nativo') {
-            aplicarOrientacaoNativa(
-              dados.rotacao,
-              dados.orientacao
-            );
-            return;
-          }
-
-          if (dados.tipo === 'sensor-giroscopio') {
-            aplicarGiroscopioNativo(
-              dados.velocidade,
-              dados.deltaTempo
-            );
-            return;
-          }
-        } catch (erro) {
-          enviarParaApp({ tipo: 'debug', mensagem: 'Erro ao processar mensagem: ' + String(erro) });
-        }
+          if (dados.tipo === 'conteudo') { renderizarConteudo(dados); return; }
+          if (dados.tipo === 'hud') { atualizarHud(dados); return; }
+          if (dados.tipo === 'centralizar') { centralizarVisao(); return; }
+          if (dados.tipo === 'sensor-nativo') { aplicarOrientacaoNativa(dados.rotacao, dados.orientacao); return; }
+          if (dados.tipo === 'sensor-giroscopio') { aplicarGiroscopioNativo(dados.velocidade, dados.deltaTempo); return; }
+        } catch (erro) {}
       }
 
       document.addEventListener('message', receberMensagem);
       window.addEventListener('message', receberMensagem);
 
       scene.addEventListener('loaded', function () {
-        if (EFEITOS === 'floresta') {
-          iniciarVagalumes();
-        }
+        criarBotaoLobby();
+        if (EFEITOS === 'floresta') iniciarVagalumes();
         iniciarPetalas();
-
-        enviarParaApp({
-          tipo: 'debug',
-          temXR: !!navigator.xr,
-          userAgent: navigator.userAgent,
-        });
-
-        if (navigator.xr && navigator.xr.isSessionSupported) {
-          navigator.xr
-            .isSessionSupported('immersive-vr')
-            .then(function (suportado) {
-              enviarParaApp({
-                tipo: 'debug',
-                immersiveVrSuportado: suportado,
-              });
-            })
-            .catch(function (erro) {
-              enviarParaApp({ tipo: 'debug', erroXR: String(erro) });
-            });
-        }
-
         enviarParaApp({ tipo: 'pronto' });
       });
     })();
@@ -1519,7 +1285,6 @@ export default function ModoVRScreen({ navigation }) {
 
   const [imagemUri, setImagemUri] = useState('');
   const [portalUri, setPortalUri] = useState('');
-
   const [usarFallbackSensor] = useState(true);
 
   const webviewRef = useRef(null);
@@ -1529,9 +1294,7 @@ export default function ModoVRScreen({ navigation }) {
   const mundo = MUNDOS[mundoId] || MUNDOS[MUNDO_PADRAO];
 
   const mostrarFeedback = (tipo) => {
-    if (timerFeedbackRef.current) {
-      clearTimeout(timerFeedbackRef.current);
-    }
+    if (timerFeedbackRef.current) clearTimeout(timerFeedbackRef.current);
     setFeedback(tipo);
     timerFeedbackRef.current = setTimeout(() => {
       setFeedback(null);
@@ -1541,12 +1304,7 @@ export default function ModoVRScreen({ navigation }) {
 
   useEffect(() => {
     if (Platform.OS === 'web') return undefined;
-
-    precarregarFalas(FALAS_VR_PRELOAD).catch((erro) => {
-      console.log('[VR] preload de áudio falhou:', erro);
-    });
-
-    return undefined;
+    precarregarFalas(FALAS_VR_PRELOAD).catch(() => {});
   }, []);
 
   const assetsProntos = !!imagemUri && !!portalUri;
@@ -1559,6 +1317,10 @@ export default function ModoVRScreen({ navigation }) {
             portalUri,
             efeitos: mundo.efeitos,
             rotacaoCeuY: mundo.rotacaoCeuY,
+            larguraTelaMm: (() => {
+              const { width, height } = Dimensions.get('screen');
+              return Math.round((Math.max(width, height) / 160) * 25.4);
+            })(),
           })
         : '',
     [assetsProntos, imagemUri, portalUri, mundo]
@@ -1566,40 +1328,21 @@ export default function ModoVRScreen({ navigation }) {
 
   useEffect(() => {
     if (Platform.OS === 'web') return undefined;
-
     let ativo = true;
-
     carregarAssetComoDataUri(ARQUIVO_PORTAL, 'image/png')
-      .then((uri) => {
-        if (ativo) setPortalUri(uri);
-      })
-      .catch((error) => {
-        console.log('[VR] ERRO AO CARREGAR PORTAL:', error);
-      });
-
-    return () => {
-      ativo = false;
-    };
+      .then((uri) => { if (ativo) setPortalUri(uri); })
+      .catch(() => {});
+    return () => { ativo = false; };
   }, []);
 
   useEffect(() => {
     if (Platform.OS === 'web' || !mundoId || !MUNDOS[mundoId]) return undefined;
-
     let ativo = true;
-
     setImagemUri('');
-
     carregarAssetComoDataUri(MUNDOS[mundoId].imagem, 'image/jpeg')
-      .then((uri) => {
-        if (ativo) setImagemUri(uri);
-      })
-      .catch((error) => {
-        console.log('[VR] ERRO AO CARREGAR IMAGEM DO MUNDO:', error);
-      });
-
-    return () => {
-      ativo = false;
-    };
+      .then((uri) => { if (ativo) setImagemUri(uri); })
+      .catch(() => {});
+    return () => { ativo = false; };
   }, [mundoId]);
 
   const escolherMundo = (id) => {
@@ -1610,19 +1353,11 @@ export default function ModoVRScreen({ navigation }) {
 
   const iniciarExperiencia = async () => {
     pararFala();
-
     precarregarFalas(FALAS_VR_PRELOAD).catch(() => {});
-
     StatusBar.setHidden(true, 'fade');
-
     try {
-      await ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.LANDSCAPE_LEFT
-      );
-    } catch (error) {
-      console.log('[VR] Não foi possível travar em landscape:', error);
-    }
-
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
+    } catch (error) {}
     setContador(3);
     setEtapa('contagem');
   };
@@ -1632,253 +1367,103 @@ export default function ModoVRScreen({ navigation }) {
       const timer = setTimeout(() => setContador((valor) => valor - 1), 1000);
       return () => clearTimeout(timer);
     }
-
     if (etapa === 'contagem' && contador === 0) {
       setEtapa('menu_vr');
-
       definirContextoAudio('vr-menu');
-
       falarSeguro(mundo.boasVindasTexto, mundo.boasVindasChave);
     }
-
-    return undefined;
   }, [contador, etapa, mundo]);
 
   useEffect(() => {
     return () => {
-      if (timerFeedbackRef.current) {
-        clearTimeout(timerFeedbackRef.current);
-      }
-
+      if (timerFeedbackRef.current) clearTimeout(timerFeedbackRef.current);
       if (Platform.OS === 'web') return;
-
       pararFala();
       StatusBar.setHidden(false, 'fade');
-      ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT_UP
-      ).catch(() => {});
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     };
   }, []);
 
-  const sensoresAtivos =
-    cenaPronta &&
-    etapa !== 'mundo' &&
-    etapa !== 'preparo' &&
-    etapa !== 'contagem';
+  const sensoresAtivos = cenaPronta && etapa !== 'mundo' && etapa !== 'preparo' && etapa !== 'contagem';
 
   useEffect(() => {
-    if (!usarFallbackSensor || !sensoresAtivos) {
-      return undefined;
-    }
-
+    if (!usarFallbackSensor || !sensoresAtivos) return undefined;
     let cancelado = false;
-
     let assinaturaDeviceMotion = null;
     let assinaturaGyroscope = null;
-
     let watchdogDeviceMotion = null;
     let watchdogGyroscope = null;
-
     let recebeuDeviceMotion = false;
     let recebeuGyroscope = false;
-
     let ultimoTempoGyro = null;
 
     const removerDeviceMotion = () => {
-      try {
-        assinaturaDeviceMotion?.remove?.();
-      } catch (_) {}
-
+      try { assinaturaDeviceMotion?.remove?.(); } catch (_) {}
       assinaturaDeviceMotion = null;
-
-      if (watchdogDeviceMotion) {
-        clearTimeout(watchdogDeviceMotion);
-        watchdogDeviceMotion = null;
-      }
+      if (watchdogDeviceMotion) { clearTimeout(watchdogDeviceMotion); watchdogDeviceMotion = null; }
     };
 
     const removerGyroscope = () => {
-      try {
-        assinaturaGyroscope?.remove?.();
-      } catch (_) {}
-
+      try { assinaturaGyroscope?.remove?.(); } catch (_) {}
       assinaturaGyroscope = null;
-
-      if (watchdogGyroscope) {
-        clearTimeout(watchdogGyroscope);
-        watchdogGyroscope = null;
-      }
+      if (watchdogGyroscope) { clearTimeout(watchdogGyroscope); watchdogGyroscope = null; }
     };
 
     const iniciarGyroscope = async () => {
       if (cancelado) return;
-
       removerDeviceMotion();
-
       try {
-        let disponivel = true;
-
-        try {
-          disponivel = await Gyroscope.isAvailableAsync();
-        } catch (erroDisponibilidade) {
-          console.log(
-            '[VR] Não foi possível confirmar disponibilidade do Gyroscope:',
-            erroDisponibilidade
-          );
-        }
-
-        if (cancelado) return;
-
-        console.log('[VR] Gyroscope disponível?', disponivel);
-
         Gyroscope.setUpdateInterval(16);
-
         ultimoTempoGyro = null;
-
         assinaturaGyroscope = Gyroscope.addListener((medida) => {
-          if (
-            cancelado ||
-            !webviewRef.current ||
-            !medida
-          ) {
-            return;
-          }
-
+          if (cancelado || !webviewRef.current || !medida) return;
           recebeuGyroscope = true;
-
-          if (watchdogGyroscope) {
-            clearTimeout(watchdogGyroscope);
-            watchdogGyroscope = null;
-          }
-
+          if (watchdogGyroscope) { clearTimeout(watchdogGyroscope); watchdogGyroscope = null; }
           const agora = Date.now();
-
-          if (ultimoTempoGyro == null) {
-            ultimoTempoGyro = agora;
-            return;
-          }
-
-          const deltaTempo = Math.min(
-            0.05,
-            Math.max(
-              0.001,
-              (agora - ultimoTempoGyro) / 1000
-            )
-          );
-
+          if (ultimoTempoGyro == null) { ultimoTempoGyro = agora; return; }
+          const deltaTempo = Math.min(0.05, Math.max(0.001, (agora - ultimoTempoGyro) / 1000));
           ultimoTempoGyro = agora;
-
-          webviewRef.current.postMessage(
-            JSON.stringify({
-              tipo: 'sensor-giroscopio',
-              velocidade: {
-                x: Number(medida.x || 0),
-                y: Number(medida.y || 0),
-                z: Number(medida.z || 0),
-              },
-              deltaTempo,
-            })
-          );
+          webviewRef.current.postMessage(JSON.stringify({
+            tipo: 'sensor-giroscopio',
+            velocidade: { x: Number(medida.x || 0), y: Number(medida.y || 0), z: Number(medida.z || 0) },
+            deltaTempo,
+          }));
         });
-
         watchdogGyroscope = setTimeout(() => {
           if (cancelado || recebeuGyroscope) return;
-
-          console.log(
-            '[VR] Gyroscope não entregou eventos. Mantendo controle por toque.'
-          );
-
           removerGyroscope();
         }, 1500);
-      } catch (error) {
-        console.log('[VR] Erro ao iniciar Gyroscope:', error);
-        removerGyroscope();
-      }
+      } catch (error) { removerGyroscope(); }
     };
 
     const iniciarDeviceMotion = async () => {
       try {
-        try {
-          const disponivel = await DeviceMotion.isAvailableAsync();
-          console.log('[VR] DeviceMotion reportado como disponível?', disponivel);
-        } catch (erroDisponibilidade) {
-          console.log(
-            '[VR] Falha ao consultar DeviceMotion:',
-            erroDisponibilidade
-          );
-        }
-
         if (cancelado) return;
-
         if (Platform.OS === 'ios') {
           try {
-            const permissaoAtual = await DeviceMotion.getPermissionsAsync();
-            let permissao = permissaoAtual;
-
-            if (
-              !permissaoAtual.granted &&
-              permissaoAtual.canAskAgain
-            ) {
-              permissao = await DeviceMotion.requestPermissionsAsync();
-            }
-
-            if (!permissao.granted || cancelado) {
-              console.log('[VR] Permissão de movimento não concedida no iOS.');
-              await iniciarGyroscope();
-              return;
-            }
-          } catch (erroPermissao) {
-            console.log(
-              '[VR] Erro ao consultar permissão de movimento:',
-              erroPermissao
-            );
-          }
+            const perm = await DeviceMotion.getPermissionsAsync();
+            let permissao = perm;
+            if (!perm.granted && perm.canAskAgain) permissao = await DeviceMotion.requestPermissionsAsync();
+            if (!permissao.granted || cancelado) { await iniciarGyroscope(); return; }
+          } catch (e) {}
         }
-
         if (cancelado) return;
-
         DeviceMotion.setUpdateInterval(16);
-
         assinaturaDeviceMotion = DeviceMotion.addListener((medida) => {
-          if (
-            cancelado ||
-            !medida?.rotation ||
-            !webviewRef.current
-          ) {
-            return;
-          }
-
+          if (cancelado || !medida?.rotation || !webviewRef.current) return;
           recebeuDeviceMotion = true;
-
-          if (watchdogDeviceMotion) {
-            clearTimeout(watchdogDeviceMotion);
-            watchdogDeviceMotion = null;
-          }
-
-          webviewRef.current.postMessage(
-            JSON.stringify({
-              tipo: 'sensor-nativo',
-              rotacao: medida.rotation,
-              orientacao: -90,
-            })
-          );
+          if (watchdogDeviceMotion) { clearTimeout(watchdogDeviceMotion); watchdogDeviceMotion = null; }
+          webviewRef.current.postMessage(JSON.stringify({
+            tipo: 'sensor-nativo',
+            rotacao: medida.rotation,
+            orientacao: -90,
+          }));
         });
-
         watchdogDeviceMotion = setTimeout(() => {
           if (cancelado || recebeuDeviceMotion) return;
-
-          console.log(
-            '[VR] DeviceMotion sem eventos. Ativando fallback Gyroscope.'
-          );
-
           iniciarGyroscope();
         }, 1200);
-      } catch (error) {
-        console.log('[VR] Erro ao iniciar DeviceMotion:', error);
-        if (!cancelado) {
-          iniciarGyroscope();
-        }
-      }
+      } catch (error) { if (!cancelado) iniciarGyroscope(); }
     };
 
     iniciarDeviceMotion();
@@ -1891,35 +1476,20 @@ export default function ModoVRScreen({ navigation }) {
   }, [usarFallbackSensor, sensoresAtivos]);
 
   const escolherModo = (modo) => {
-    const trilha =
-      modo === 'dislexia'
-        ? TRILHA_DISLEXIA
-        : TRILHA_DISCALCULIA;
-
+    const trilha = modo === 'dislexia' ? TRILHA_DISLEXIA : TRILHA_DISCALCULIA;
     setModoSelecionado(modo);
     setTrilhaAtual(trilha);
     setIndice(0);
     setPontos(0);
     setFeedback(null);
-
     setEtapa('jogo');
 
-    const contexto = `vr-${modo}-0`;
-    definirContextoAudio(contexto);
-
+    definirContextoAudio(`vr-${modo}-0`);
     falar(
-      modo === 'dislexia'
-        ? 'Modo Dislexia! Vamos jogar com as palavras!'
-        : 'Modo Discalculia! Vamos jogar com os numeros!',
-      modo === 'dislexia'
-        ? 'modo_dislexia'
-        : 'modo_discalculia'
+      modo === 'dislexia' ? 'Modo Dislexia! Vamos jogar com as palavras!' : 'Modo Discalculia! Vamos jogar com os numeros!',
+      modo === 'dislexia' ? 'modo_dislexia' : 'modo_discalculia'
     );
-
-    falar(
-      trilha[0].pergunta,
-      chaveAudio(trilha, modo, 0)
-    );
+    falar(trilha[0].pergunta, chaveAudio(trilha, modo, 0));
   };
 
   const responderCerto = () => {
@@ -1928,147 +1498,72 @@ export default function ModoVRScreen({ navigation }) {
     setPontos((valor) => valor + 10);
 
     const ultimaPergunta = indice >= trilhaAtual.length - 1;
-
-    const terminouBloco =
-      !ultimaPergunta &&
-      (indice + 1) % PERGUNTAS_POR_PORTAL === 0;
+    const terminouBloco = !ultimaPergunta && (indice + 1) % PERGUNTAS_POR_PORTAL === 0;
 
     if (ultimaPergunta) {
       setEtapa('final');
-
       definirContextoAudio(`vr-${modoSelecionado}-final`);
-
       falar('Muito bem!', 'muitobem');
       falar('Parabens! Completou a trilha!', 'trilha_final');
-
       return;
     }
 
     if (terminouBloco) {
       setEtapa('portal');
-
-      definirContextoAudio(
-        `vr-${modoSelecionado}-portal-${indice}`
-      );
-
-      falar(
-        'Muito bem! Procure o portal para continuar!',
-        'feedback_certo'
-      );
-
+      definirContextoAudio(`vr-${modoSelecionado}-portal-${indice}`);
+      falar('Muito bem! Procure o portal para continuar!', 'feedback_certo');
       return;
     }
 
     const prox = indice + 1;
-
     setIndice(prox);
     setEtapa('jogo');
-
     definirContextoAudio(`vr-${modoSelecionado}-${prox}`);
-
     falar('Muito bem!', 'muitobem');
-
-    falar(
-      trilhaAtual[prox].pergunta,
-      chaveAudio(trilhaAtual, modoSelecionado, prox)
-    );
+    falar(trilhaAtual[prox].pergunta, chaveAudio(trilhaAtual, modoSelecionado, prox));
   };
 
   const responderErrado = () => {
     addScore('vr', 'erro');
     mostrarFeedback('errado');
-
-    limparFilaDoContextoAtual({
-      interromperAtual: true,
-    });
-
-    falar(
-      'Tente novamente!',
-      'feedback_errado',
-      {
-        substituirFilaDoContexto: true,
-        interromperAtual: true,
-      }
-    );
+    limparFilaDoContextoAtual({ interromperAtual: true });
+    falar('Tente novamente!', 'feedback_errado', { substituirFilaDoContexto: true, interromperAtual: true });
   };
 
   const dispararFlashTeleporte = () => {
     flashOpacity.setValue(0);
-
     Animated.sequence([
-      Animated.timing(flashOpacity, {
-        toValue: 0.5,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.timing(flashOpacity, {
-        toValue: 0,
-        duration: 450,
-        useNativeDriver: true,
-      }),
+      Animated.timing(flashOpacity, { toValue: 0.5, duration: 250, useNativeDriver: true }),
+      Animated.timing(flashOpacity, { toValue: 0, duration: 450, useNativeDriver: true }),
     ]).start();
   };
 
   const avancarProximaEstacao = () => {
     const prox = indice + 1;
-
     dispararFlashTeleporte();
 
     if (prox >= trilhaAtual.length) {
       setEtapa('final');
-
       definirContextoAudio(`vr-${modoSelecionado}-final`);
-
-      falar(
-        'Parabens! Completou a trilha!',
-        'trilha_final'
-      );
-
+      falar('Parabens! Completou a trilha!', 'trilha_final');
       return;
     }
 
     setIndice(prox);
     setEtapa('jogo');
-
     definirContextoAudio(`vr-${modoSelecionado}-${prox}`);
-
-    falar(
-      trilhaAtual[prox].pergunta,
-      chaveAudio(trilhaAtual, modoSelecionado, prox)
-    );
+    falar(trilhaAtual[prox].pergunta, chaveAudio(trilhaAtual, modoSelecionado, prox));
   };
 
   const aoReceberMensagemWebView = (event) => {
     try {
       const dados = JSON.parse(event.nativeEvent.data);
-
-      if (dados.tipo === 'pronto') {
-        setCenaPronta(true);
-        return;
-      }
-
-      if (dados.tipo === 'debug') {
-        console.log('[VR][WEBVIEW]', dados);
-        return;
-      }
-
+      if (dados.tipo === 'pronto') { setCenaPronta(true); return; }
       if (dados.tipo === 'clique') {
-        if (
-          dados.acao === 'dislexia' ||
-          dados.acao === 'discalculia'
-        ) {
+        if (dados.acao === 'dislexia' || dados.acao === 'discalculia') {
           escolherModo(dados.acao);
-        } else if (dados.acao === 'sair-vr') {
-          pararFala();
-          StatusBar.setHidden(false, 'fade');
-          ScreenOrientation.lockAsync(
-            ScreenOrientation.OrientationLock.PORTRAIT_UP
-          ).finally(() => {
-            navigation.goBack();
-          });
         } else if (dados.acao === 'voltar-lobby') {
           definirContextoAudio('vr-menu-retorno');
-
           setFeedback(null);
           setModoSelecionado(null);
           setIndice(0);
@@ -2079,14 +1574,11 @@ export default function ModoVRScreen({ navigation }) {
           avancarProximaEstacao();
         }
       }
-    } catch (error) {
-      console.log('[VR] Mensagem inválida da WebView:', error);
-    }
+    } catch (error) {}
   };
 
   useEffect(() => {
     if (!cenaPronta || !webviewRef.current) return;
-
     let payload = null;
 
     if (etapa === 'menu_vr') {
@@ -2096,73 +1588,42 @@ export default function ModoVRScreen({ navigation }) {
         modo: 'escolha',
         opcoes: [
           { texto: 'DISLEXIA', angulo: a1, acao: 'dislexia' },
-          {
-            texto: 'DISCALCULIA',
-            angulo: a2,
-            acao: 'discalculia',
-          },
+          { texto: 'DISCALCULIA', angulo: a2, acao: 'discalculia' },
         ],
       };
     } else if (etapa === 'jogo') {
       const questao = trilhaAtual[indice];
-
       if (questao.tipo === 'escolha') {
         const opcoesEmbaralhadas = embaralhar(questao.opcoes);
         const angulos = sortearAngulosN(opcoesEmbaralhadas.length);
-
         payload = {
           tipo: 'conteudo',
           modo: 'escolha',
-          opcoes: opcoesEmbaralhadas.map((opcao, i) => ({
-            ...opcao,
-            angulo: angulos[i],
-          })),
+          opcoes: opcoesEmbaralhadas.map((opcao, i) => ({ ...opcao, angulo: angulos[i] })),
         };
       } else if (questao.tipo === 'sequencia') {
         const angulos = sortearAngulosN(questao.pecas.length);
         let indicesEmbaralhados = embaralhar(questao.pecas.map((_, i) => i));
-
         let tentativas = 0;
-        while (
-          indicesEmbaralhados.length > 1 &&
-          indicesEmbaralhados.every((valor, i) => valor === i) &&
-          tentativas < 10
-        ) {
+        while (indicesEmbaralhados.length > 1 && indicesEmbaralhados.every((valor, i) => valor === i) && tentativas < 10) {
           indicesEmbaralhados = embaralhar(indicesEmbaralhados);
           tentativas += 1;
         }
-
         payload = {
           tipo: 'conteudo',
           modo: 'sequencia',
-          pecas: indicesEmbaralhados.map(
-            (idxOriginal, posVisual) => ({
-              texto: questao.pecas[idxOriginal],
-              ordem: idxOriginal + 1,
-              angulo: angulos[posVisual],
-            })
-          ),
+          pecas: indicesEmbaralhados.map((idxOriginal, posVisual) => ({
+            texto: questao.pecas[idxOriginal],
+            ordem: idxOriginal + 1,
+            angulo: angulos[posVisual],
+          })),
         };
       }
     } else if (etapa === 'portal') {
-      payload = {
-        tipo: 'conteudo',
-        modo: 'portal',
-        angulo: 0,
-      };
+      payload = { tipo: 'conteudo', modo: 'portal', angulo: 0 };
     } else if (etapa === 'final') {
-      payload = {
-        tipo: 'conteudo',
-        modo: 'escolha',
-        opcoes: [
-          {
-            texto: 'VOLTAR AO LOBBY',
-            angulo: 0,
-            acao: 'voltar-lobby',
-            correta: true,
-          },
-        ],
-      };
+      // Nota: Não injetamos mais cartas no centro na etapa final para não conflitar com o botão de trás
+      payload = { tipo: 'conteudo', modo: 'vazio' };
     }
 
     if (payload) {
@@ -2171,99 +1632,30 @@ export default function ModoVRScreen({ navigation }) {
   }, [cenaPronta, etapa, indice, trilhaAtual]);
 
   const questaoAtual = etapa === 'jogo' ? trilhaAtual[indice] : null;
-
-  const perguntaAtual =
-    etapa === 'jogo'
-      ? questaoAtual?.pergunta || ''
-      : etapa === 'menu_vr'
-        ? 'Escolha um caminho na sua frente!'
-        : etapa === 'portal'
-          ? 'Muito bem! Encontre o portal para continuar!'
-          : `Parabens! Voce fez ${pontos} pontos!`;
+  const perguntaAtual = etapa === 'jogo' ? questaoAtual?.pergunta || '' : etapa === 'menu_vr' ? 'Escolha um caminho na sua frente!' : etapa === 'portal' ? 'Muito bem! Encontre o portal para continuar!' : `Parabens! Voce fez ${pontos} pontos! Olhe para tras para voltar.`;
 
   useEffect(() => {
     if (!cenaPronta || !webviewRef.current) return;
-
-    const concluidas =
-      etapa === 'final'
-        ? trilhaAtual.length
-        : etapa === 'portal'
-          ? Math.min(indice + 1, trilhaAtual.length)
-          : indice;
-
-    webviewRef.current.postMessage(
-      JSON.stringify({
-        tipo: 'hud',
-        pergunta: perguntaAtual,
-        pontos,
-        indice,
-        concluidas,
-        total: etapa === 'menu_vr' ? 0 : trilhaAtual.length,
-        feedback,
-      })
-    );
-  }, [
-    cenaPronta,
-    etapa,
-    indice,
-    pontos,
-    feedback,
-    trilhaAtual,
-    perguntaAtual,
-  ]);
+    const concluidas = etapa === 'final' ? trilhaAtual.length : etapa === 'portal' ? Math.min(indice + 1, trilhaAtual.length) : indice;
+    webviewRef.current.postMessage(JSON.stringify({
+      tipo: 'hud',
+      pergunta: perguntaAtual,
+      pontos,
+      indice,
+      concluidas,
+      total: etapa === 'menu_vr' ? 0 : trilhaAtual.length,
+      feedback,
+    }));
+  }, [cenaPronta, etapa, indice, pontos, feedback, trilhaAtual, perguntaAtual]);
 
   if (Platform.OS === 'web') {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: '#F8FAFC',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24,
-        }}
-      >
-        <Image
-          source={ARQUIVO_LUMI}
-          style={{ width: 150, height: 150 }}
-          resizeMode="contain"
-        />
-
-        <Text
-          style={{
-            fontSize: 22,
-            fontWeight: 'bold',
-            color: '#1E293B',
-            textAlign: 'center',
-            marginVertical: 16,
-          }}
-        >
-          Modo VR
-        </Text>
-
-        <Text
-          style={{
-            fontSize: 16,
-            color: '#475569',
-            textAlign: 'center',
-            marginBottom: 24,
-          }}
-        >
-          A experiência VR está disponível na versão para celular.
-        </Text>
-
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{
-            backgroundColor: '#8B5CF6',
-            paddingVertical: 12,
-            paddingHorizontal: 24,
-            borderRadius: 12,
-          }}
-        >
-          <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>
-            Voltar ao Menu
-          </Text>
+      <View style={{ flex: 1, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Image source={ARQUIVO_LUMI} style={{ width: 150, height: 150 }} resizeMode="contain" />
+        <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1E293B', textAlign: 'center', marginVertical: 16 }}>Modo VR</Text>
+        <Text style={{ fontSize: 16, color: '#475569', textAlign: 'center', marginBottom: 24 }}>A experiência VR está disponível na versão para celular.</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ backgroundColor: '#8B5CF6', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12 }}>
+          <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>Voltar ao Menu</Text>
         </TouchableOpacity>
       </View>
     );
@@ -2272,39 +1664,23 @@ export default function ModoVRScreen({ navigation }) {
   if (etapa === 'mundo') {
     return (
       <View style={styles.containerPreparo}>
-        <Image
-          source={ARQUIVO_LUMI}
-          style={styles.imgLumiMundo}
-          resizeMode="contain"
-        />
-
+        <Image source={ARQUIVO_LUMI} style={styles.imgLumiMundo} resizeMode="contain" />
         <Text style={styles.titulo}>Escolha seu mundo!</Text>
-
-        <Text style={styles.subtitulo}>
-          Para onde a Lumi vai te levar hoje?
-        </Text>
-
+        <Text style={styles.subtitulo}>Para onde a Lumi vai te levar hoje?</Text>
         <View style={styles.linhaMundos}>
           {Object.values(MUNDOS).map((m) => (
             <TouchableOpacity
               key={m.id}
               activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={m.nome}
               onPress={() => escolherMundo(m.id)}
-              style={[
-                styles.cardMundo,
-                { backgroundColor: m.corCard, borderColor: m.corBorda },
-              ]}
+              style={[styles.cardMundo, { backgroundColor: m.corCard, borderColor: m.corBorda }]}
             >
               <Text style={styles.emojiMundo}>{m.emoji}</Text>
-              <Text style={[styles.nomeMundo, { color: m.corTexto }]}>
-                {m.nome}
-              </Text>
+              <Text style={[styles.nomeMundo, { color: m.corTexto }]}>{m.nome}</Text>
+              <Text style={[styles.descMundo, { color: m.corTexto }]}>{m.descricao}</Text>
             </TouchableOpacity>
           ))}
         </View>
-
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.txtVoltar}>Voltar ao Menu</Text>
         </TouchableOpacity>
@@ -2315,34 +1691,16 @@ export default function ModoVRScreen({ navigation }) {
   if (etapa === 'preparo') {
     return (
       <View style={styles.containerPreparo}>
-        <Image
-          source={ARQUIVO_LUMI}
-          style={styles.imgLumiPreparo}
-          resizeMode="contain"
-        />
-
+        <Image source={ARQUIVO_LUMI} style={styles.imgLumiPreparo} resizeMode="contain" />
         <Text style={styles.titulo}>Mundo Virtual da Lumi</Text>
-
-        <Text style={styles.txtMundoEscolhido}>
-          {`${mundo.emoji}  ${mundo.nome}`}
-        </Text>
-
-        <Text style={styles.subtitulo}>
-          Encaixe seu celular nos óculos VR e prepare o controle Bluetooth
-          para iniciar!
-        </Text>
-
-        <TouchableOpacity
-          style={styles.btnComecar}
-          onPress={iniciarExperiencia}
-        >
+        <Text style={styles.txtMundoEscolhido}>{`${mundo.emoji}  ${mundo.nome}`}</Text>
+        <Text style={styles.subtitulo}>Encaixe seu celular nos óculos VR e prepare o controle Bluetooth para iniciar!</Text>
+        <TouchableOpacity style={styles.btnComecar} onPress={iniciarExperiencia}>
           <Text style={styles.txtComecar}>ENTRAR NO MUNDO VR!</Text>
         </TouchableOpacity>
-
         <TouchableOpacity onPress={() => setEtapa('mundo')}>
           <Text style={styles.txtVoltar}>Trocar de mundo</Text>
         </TouchableOpacity>
-
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.txtVoltar}>Voltar ao Menu</Text>
         </TouchableOpacity>
@@ -2353,9 +1711,7 @@ export default function ModoVRScreen({ navigation }) {
   if (etapa === 'contagem') {
     return (
       <View style={styles.containerContagem}>
-        <Text style={styles.txtContagem}>
-          {contador === 0 ? 'VAMOS!' : contador}
-        </Text>
+        <Text style={styles.txtContagem}>{contador === 0 ? 'VAMOS!' : contador}</Text>
         <Text style={styles.txtAviso}>Coloque os óculos agora!</Text>
       </View>
     );
@@ -2379,158 +1735,43 @@ export default function ModoVRScreen({ navigation }) {
           scrollEnabled={false}
           setSupportMultipleWindows={false}
           onMessage={aoReceberMensagemWebView}
-          onError={(event) => {
-            console.log('[VR] Erro da WebView:', event.nativeEvent);
-          }}
-          onHttpError={(event) => {
-            console.log('[VR] Erro HTTP da WebView:', event.nativeEvent);
-          }}
+          onError={(event) => { console.log('[VR] Erro da WebView:', event.nativeEvent); }}
+          onHttpError={(event) => { console.log('[VR] Erro HTTP da WebView:', event.nativeEvent); }}
         />
       )}
 
       {!assetsProntos && (
         <View style={styles.carregando}>
-          <Text style={styles.txtCarregando}>
-            {`Carregando ${mundo.nome}...`}
-          </Text>
+          <Text style={styles.txtCarregando}>{`Carregando ${mundo.nome}...`}</Text>
         </View>
       )}
 
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.flash, { opacity: flashOpacity }]}
-      />
+      <Animated.View pointerEvents="none" style={[styles.flash, { opacity: flashOpacity }]} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  containerPreparo: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F3E8FF',
-    padding: 20,
-  },
-  imgLumiPreparo: {
-    width: 180,
-    height: 180,
-    marginBottom: 10,
-  },
-  titulo: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#3f01a3',
-    textAlign: 'center',
-  },
-  subtitulo: {
-    fontSize: 15,
-    color: '#6D28D9',
-    textAlign: 'center',
-    marginVertical: 15,
-    paddingHorizontal: 20,
-  },
-  btnComecar: {
-    backgroundColor: '#7C3AED',
-    paddingVertical: 14,
-    paddingHorizontal: 30,
-    borderRadius: 25,
-    elevation: 4,
-  },
-  txtComecar: {
-    color: '#FFF',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  txtVoltar: {
-    color: '#6D28D9',
-    marginTop: 15,
-    textDecorationLine: 'underline',
-  },
-
-  imgLumiMundo: {
-    width: 130,
-    height: 130,
-    marginBottom: 6,
-  },
-  linhaMundos: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'stretch',
-    width: '100%',
-    marginVertical: 12,
-  },
-  cardMundo: {
-    flex: 1,
-    maxWidth: 190,
-    minHeight: 170,
-    marginHorizontal: 8,
-    paddingVertical: 18,
-    paddingHorizontal: 10,
-    borderRadius: 22,
-    borderWidth: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-  },
-  emojiMundo: {
-    fontSize: 54,
-    marginBottom: 8,
-  },
-  nomeMundo: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  txtMundoEscolhido: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#7C3AED',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-
-  containerContagem: {
-    flex: 1,
-    backgroundColor: '#0F172A',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  txtContagem: {
-    fontSize: 90,
-    fontWeight: '900',
-    color: '#A78BFA',
-  },
-  txtAviso: {
-    color: '#DDD6FE',
-    fontSize: 16,
-    marginTop: 10,
-  },
-
-  containerVR: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  carregando: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  txtCarregando: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    paddingHorizontal: 30,
-  },
-
-  flash: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#DDD6FE',
-  },
+  containerPreparo: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3E8FF', padding: 20 },
+  imgLumiPreparo: { width: 180, height: 180, marginBottom: 10 },
+  titulo: { fontSize: 24, fontWeight: 'bold', color: '#3f01a3', textAlign: 'center' },
+  subtitulo: { fontSize: 15, color: '#6D28D9', textAlign: 'center', marginVertical: 15, paddingHorizontal: 20 },
+  btnComecar: { backgroundColor: '#7C3AED', paddingVertical: 14, paddingHorizontal: 30, borderRadius: 25, elevation: 4 },
+  txtComecar: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  txtVoltar: { color: '#6D28D9', marginTop: 15, textDecorationLine: 'underline' },
+  imgLumiMundo: { width: 130, height: 130, marginBottom: 6 },
+  linhaMundos: { flexDirection: 'row', justifyContent: 'center', alignItems: 'stretch', width: '100%', marginVertical: 12 },
+  cardMundo: { flex: 1, maxWidth: 190, minHeight: 170, marginHorizontal: 8, paddingVertical: 18, paddingHorizontal: 10, borderRadius: 22, borderWidth: 3, alignItems: 'center', justifyContent: 'center', elevation: 4 },
+  emojiMundo: { fontSize: 54, marginBottom: 8 },
+  nomeMundo: { fontSize: 18, fontWeight: 'bold', textAlign: 'center' },
+  descMundo: { fontSize: 13, textAlign: 'center', marginTop: 4 },
+  txtMundoEscolhido: { fontSize: 18, fontWeight: 'bold', color: '#7C3AED', textAlign: 'center', marginTop: 8 },
+  containerContagem: { flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' },
+  txtContagem: { fontSize: 90, fontWeight: '900', color: '#A78BFA' },
+  txtAviso: { color: '#DDD6FE', fontSize: 16, marginTop: 10 },
+  containerVR: { flex: 1, backgroundColor: '#000000' },
+  webview: { flex: 1, backgroundColor: '#000000' },
+  carregando: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
+  txtCarregando: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold', textAlign: 'center', paddingHorizontal: 30 },
+  flash: { ...StyleSheet.absoluteFillObject, backgroundColor: '#DDD6FE' },
 });
