@@ -401,7 +401,7 @@ export default function DislexiaScreen({ navigation }) {
       if (completou) {
         bloquearInteracao();
         setCorFundo('#C6F6D5');
-        setMensagem('Palavra montada! 🎉');
+        setMensagem('Palavra montada! ');
         falar('Você montou a palavra certinho!', 'montoucertinho');
         agendar(() => {
           setCorFundo('#F7FAFC');
